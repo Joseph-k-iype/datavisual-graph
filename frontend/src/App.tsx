@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Node as FlowNode } from 'reactflow';  // ← Renamed to avoid DOM Node conflict
-import { ReactFlowProvider } from 'reactflow';
 import { LineageGraph } from './components/LineageGraph';
 import { NodeEditor } from './components/NodeEditor';
 import { Sidebar } from './components/Sidebar';
@@ -247,15 +246,13 @@ function App() {
 
           {/* Graph Container */}
           <div className="flex-1">
-            <ReactFlowProvider>
-              <LineageGraph
-                nodes={nodes}
-                edges={edges}
-                loading={loading}
-                onNodeClick={handleNodeClick}
-                onNodeContextMenu={handleNodeContextMenu}
-              />
-            </ReactFlowProvider>
+            <LineageGraph
+              nodes={nodes}
+              edges={edges}
+              loading={loading}
+              onNodeClick={handleNodeClick}
+              onNodeContextMenu={handleNodeContextMenu}
+            />
           </div>
         </div>
       </div>
