@@ -1,0 +1,254 @@
+{
+  "countries": [
+    {
+      "id": "uk",
+      "name": "United Kingdom",
+      "code": "GB",
+      "region": "Europe",
+      "dataProtectionRegime": "UK GDPR",
+      "adequacyStatus": "Adequate"
+    },
+    {
+      "id": "usa",
+      "name": "United States",
+      "code": "US",
+      "region": "North America",
+      "dataProtectionRegime": "State-level regulations",
+      "adequacyStatus": "Not Adequate"
+    },
+    {
+      "id": "india",
+      "name": "India",
+      "code": "IN",
+      "region": "Asia",
+      "dataProtectionRegime": "DPDPA 2023",
+      "adequacyStatus": "Not Adequate"
+    },
+    {
+      "id": "germany",
+      "name": "Germany",
+      "code": "DE",
+      "region": "Europe",
+      "dataProtectionRegime": "GDPR",
+      "adequacyStatus": "Adequate"
+    },
+    {
+      "id": "singapore",
+      "name": "Singapore",
+      "code": "SG",
+      "region": "Asia",
+      "dataProtectionRegime": "PDPA",
+      "adequacyStatus": "Not Adequate"
+    }
+  ],
+  "databases": [
+    {
+      "id": "uk_customer_db",
+      "name": "UK Customer Database",
+      "countryId": "uk",
+      "type": "PostgreSQL",
+      "classification": "Confidential",
+      "owner": "Data Engineering"
+    },
+    {
+      "id": "usa_analytics_db",
+      "name": "USA Analytics Database",
+      "countryId": "usa",
+      "type": "Snowflake",
+      "classification": "Internal",
+      "owner": "Analytics Team"
+    },
+    {
+      "id": "india_operations_db",
+      "name": "India Operations Database",
+      "countryId": "india",
+      "type": "MySQL",
+      "classification": "Confidential",
+      "owner": "Operations Team"
+    },
+    {
+      "id": "germany_compliance_db",
+      "name": "Germany Compliance Database",
+      "countryId": "germany",
+      "type": "PostgreSQL",
+      "classification": "Restricted",
+      "owner": "Compliance Team"
+    },
+    {
+      "id": "singapore_backup_db",
+      "name": "Singapore Backup Database",
+      "countryId": "singapore",
+      "type": "MongoDB",
+      "classification": "Internal",
+      "owner": "Infrastructure Team"
+    }
+  ],
+  "attributes": [
+    {
+      "id": "uk_customer_id",
+      "name": "customer_id",
+      "databaseId": "uk_customer_db",
+      "dataType": "STRING",
+      "category": "Personal Data",
+      "sensitivity": "Medium",
+      "isPII": true
+    },
+    {
+      "id": "uk_customer_name",
+      "name": "customer_name",
+      "databaseId": "uk_customer_db",
+      "dataType": "STRING",
+      "category": "Personal Data",
+      "sensitivity": "High",
+      "isPII": true
+    },
+    {
+      "id": "uk_customer_email",
+      "name": "customer_email",
+      "databaseId": "uk_customer_db",
+      "dataType": "STRING",
+      "category": "Contact Information",
+      "sensitivity": "High",
+      "isPII": true
+    },
+    {
+      "id": "uk_transaction_amount",
+      "name": "transaction_amount",
+      "databaseId": "uk_customer_db",
+      "dataType": "DECIMAL",
+      "category": "Financial Data",
+      "sensitivity": "High",
+      "isPII": false
+    },
+    {
+      "id": "usa_analytics_user_id",
+      "name": "user_id",
+      "databaseId": "usa_analytics_db",
+      "dataType": "STRING",
+      "category": "Personal Data",
+      "sensitivity": "Medium",
+      "isPII": true
+    },
+    {
+      "id": "usa_analytics_behavior",
+      "name": "user_behavior",
+      "databaseId": "usa_analytics_db",
+      "dataType": "JSON",
+      "category": "Behavioral Data",
+      "sensitivity": "Medium",
+      "isPII": false
+    },
+    {
+      "id": "india_ops_employee_id",
+      "name": "employee_id",
+      "databaseId": "india_operations_db",
+      "dataType": "STRING",
+      "category": "HR Data",
+      "sensitivity": "High",
+      "isPII": true
+    },
+    {
+      "id": "germany_compliance_audit_log",
+      "name": "audit_log",
+      "databaseId": "germany_compliance_db",
+      "dataType": "TEXT",
+      "category": "Audit Data",
+      "sensitivity": "Medium",
+      "isPII": false
+    }
+  ],
+  "transfers": [
+    {
+      "id": "transfer_1",
+      "sourceType": "Country",
+      "sourceId": "uk",
+      "targetType": "Country",
+      "targetId": "usa",
+      "dataCategories": ["Personal Data", "Contact Information"],
+      "legalBasis": "Standard Contractual Clauses",
+      "frequency": "Real-time",
+      "volume": "High",
+      "purpose": "Analytics Processing"
+    },
+    {
+      "id": "transfer_2",
+      "sourceType": "Country",
+      "sourceId": "usa",
+      "targetType": "Country",
+      "targetId": "india",
+      "dataCategories": ["Personal Data", "Behavioral Data"],
+      "legalBasis": "Consent",
+      "frequency": "Batch",
+      "volume": "Medium",
+      "purpose": "Operations Support"
+    },
+    {
+      "id": "transfer_3",
+      "sourceType": "Country",
+      "sourceId": "uk",
+      "targetType": "Country",
+      "targetId": "germany",
+      "dataCategories": ["Personal Data", "Financial Data"],
+      "legalBasis": "Adequacy Decision",
+      "frequency": "Real-time",
+      "volume": "High",
+      "purpose": "Compliance Reporting"
+    },
+    {
+      "id": "transfer_4",
+      "sourceType": "Database",
+      "sourceId": "uk_customer_db",
+      "targetType": "Database",
+      "targetId": "usa_analytics_db",
+      "dataCategories": ["Personal Data"],
+      "legalBasis": "Standard Contractual Clauses",
+      "frequency": "Real-time",
+      "volume": "High",
+      "purpose": "Analytics"
+    },
+    {
+      "id": "transfer_5",
+      "sourceType": "Database",
+      "sourceId": "usa_analytics_db",
+      "targetType": "Database",
+      "targetId": "india_operations_db",
+      "dataCategories": ["Behavioral Data"],
+      "legalBasis": "Consent",
+      "frequency": "Batch",
+      "volume": "Medium",
+      "purpose": "Operations"
+    },
+    {
+      "id": "transfer_6",
+      "sourceType": "Attribute",
+      "sourceId": "uk_customer_id",
+      "targetType": "Attribute",
+      "targetId": "usa_analytics_user_id",
+      "dataCategories": ["Personal Data"],
+      "transformationType": "Pseudonymization",
+      "legalBasis": "Standard Contractual Clauses"
+    },
+    {
+      "id": "transfer_7",
+      "sourceType": "Attribute",
+      "sourceId": "uk_customer_email",
+      "targetType": "Attribute",
+      "targetId": "usa_analytics_user_id",
+      "dataCategories": ["Contact Information"],
+      "transformationType": "Hashing",
+      "legalBasis": "Standard Contractual Clauses"
+    },
+    {
+      "id": "transfer_8",
+      "sourceType": "Country",
+      "sourceId": "germany",
+      "targetType": "Country",
+      "targetId": "singapore",
+      "dataCategories": ["Audit Data"],
+      "legalBasis": "Standard Contractual Clauses",
+      "frequency": "Daily",
+      "volume": "Low",
+      "purpose": "Backup"
+    }
+  ]
+}
