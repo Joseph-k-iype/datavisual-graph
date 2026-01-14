@@ -1,3 +1,4 @@
+// frontend/src/utils/layoutUtils.ts - FIXED
 import ELK, { ElkNode, ElkExtendedEdge } from 'elkjs/lib/elk.bundled.js';
 import { Node, Edge, Position } from 'reactflow';
 import { GraphNode, GraphEdge, NodeType } from '../types';
@@ -13,31 +14,53 @@ export interface LayoutConfig {
 export const getNodeDimensions = (type: NodeType): { width: number; height: number } => {
   switch (type) {
     case 'Country':
-      return { width: 200, height: 120 };
+      return { width: 220, height: 140 };
     case 'Database':
-      return { width: 180, height: 100 };
+      return { width: 200, height: 120 };
     case 'Attribute':
-      return { width: 160, height: 80 };
-    default:
       return { width: 180, height: 100 };
+    default:
+      return { width: 200, height: 120 };
   }
 };
 
 export const getNodeColor = (type: NodeType): string => {
   switch (type) {
     case 'Country':
-      return '#3b82f6'; // blue-500
+      return '#DC2626';
     case 'Database':
-      return '#8b5cf6'; // violet-500
+      return '#4B5563';
     case 'Attribute':
-      return '#06b6d4'; // cyan-500
+      return '#6B7280';
     default:
-      return '#6b7280'; // gray-500
+      return '#9CA3AF';
   }
 };
 
+// Generate fallback grid positions
+const generateFallbackPositions = (nodes: Node[]): Node[] => {
+  const cols = Math.ceil(Math.sqrt(nodes.length));
+  const cellWidth = 350;
+  const cellHeight = 250;
+
+  return nodes.map((node, index) => {
+    const col = index % cols;
+    const row = Math.floor(index / cols);
+    
+    return {
+      ...node,
+      position: {
+        x: col * cellWidth + 100,
+        y: row * cellHeight + 100,
+      },
+      sourcePosition: Position.Bottom,
+      targetPosition: Position.Top,
+    };
+  });
+};
+
 export const createReactFlowNodes = (graphNodes: GraphNode[]): Node[] => {
-  return graphNodes.map((node) => {
+  const nodes = graphNodes.map((node) => {
     const dimensions = getNodeDimensions(node.type);
     
     return {
@@ -54,21 +77,36 @@ export const createReactFlowNodes = (graphNodes: GraphNode[]): Node[] => {
         width: dimensions.width,
         height: dimensions.height,
       },
+      // FIXED: Add source/target positions
+      sourcePosition: Position.Bottom,
+      targetPosition: Position.Top,
     };
   });
+
+  return generateFallbackPositions(nodes);
 };
 
 export const createReactFlowEdges = (graphEdges: GraphEdge[]): Edge[] => {
-  return graphEdges.map((edge) => ({
-    id: edge.id,
+  return graphEdges.map((edge, index) => ({
+    id: edge.id || `edge-${index}`,
     source: edge.source,
     target: edge.target,
+    // FIXED: Explicitly set handle IDs
+    sourceHandle: 'bottom',
+    targetHandle: 'top',
     type: 'smoothstep',
     animated: true,
     data: edge.data,
     label: edge.data.dataCategories?.join(', ') || '',
-    labelStyle: { fontSize: 10, fill: '#64748b' },
-    style: { stroke: '#94a3b8', strokeWidth: 2 },
+    labelStyle: { 
+      fontSize: 11, 
+      fill: '#374151',
+      fontWeight: 500,
+    },
+    style: { 
+      stroke: '#6B7280',
+      strokeWidth: 2.5,
+    },
   }));
 };
 
@@ -79,14 +117,18 @@ export const applyHierarchicalLayout = async (
 ): Promise<{ nodes: Node[]; edges: Edge[] }> => {
   const {
     direction = 'DOWN',
-    spacing = 100,
-    layerSpacing = 150,
+    spacing = 150,
+    layerSpacing = 200,
   } = config;
+
+  if (nodes.length === 0) {
+    return { nodes, edges };
+  }
 
   const elkNodes: ElkNode[] = nodes.map((node) => ({
     id: node.id,
-    width: node.style?.width as number || 180,
-    height: node.style?.height as number || 100,
+    width: node.style?.width as number || 200,
+    height: node.style?.height as number || 120,
   }));
 
   const elkEdges: ElkExtendedEdge[] = edges.map((edge) => ({
@@ -102,10 +144,11 @@ export const applyHierarchicalLayout = async (
       'elk.direction': direction,
       'elk.spacing.nodeNode': spacing.toString(),
       'elk.layered.spacing.nodeNodeBetweenLayers': layerSpacing.toString(),
-      'elk.spacing.edgeNode': '50',
-      'elk.spacing.edgeEdge': '30',
+      'elk.spacing.edgeNode': '60',
+      'elk.spacing.edgeEdge': '40',
       'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
       'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+      'elk.padding': '[top=80,left=80,bottom=80,right=80]',
     },
     children: elkNodes,
     edges: elkEdges,
@@ -116,28 +159,37 @@ export const applyHierarchicalLayout = async (
 
     const layoutedNodes = nodes.map((node) => {
       const layoutedNode = layout.children?.find((n) => n.id === node.id);
+      
+      const x = layoutedNode?.x ?? node.position.x ?? 100;
+      const y = layoutedNode?.y ?? node.position.y ?? 100;
+      
       return {
         ...node,
-        position: {
-          x: layoutedNode?.x ?? node.position.x,
-          y: layoutedNode?.y ?? node.position.y,
-        },
+        position: { x, y },
         sourcePosition: Position.Bottom,
         targetPosition: Position.Top,
       };
     });
 
+    console.log('✓ Hierarchical layout applied:', layoutedNodes.length, 'nodes');
     return { nodes: layoutedNodes, edges };
   } catch (error) {
-    console.error('Layout error:', error);
-    return { nodes, edges };
+    console.error('Layout error, using fallback:', error);
+    return { nodes: generateFallbackPositions(nodes), edges };
   }
 };
 
-export const applyCircularLayout = (nodes: Node[], edges: Edge[]): { nodes: Node[]; edges: Edge[] } => {
-  const centerX = 500;
+export const applyCircularLayout = (
+  nodes: Node[],
+  edges: Edge[]
+): { nodes: Node[]; edges: Edge[] } => {
+  if (nodes.length === 0) {
+    return { nodes, edges };
+  }
+
+  const centerX = 600;
   const centerY = 400;
-  const radius = 300;
+  const radius = Math.max(350, nodes.length * 35);
 
   const layoutedNodes = nodes.map((node, index) => {
     const angle = (2 * Math.PI * index) / nodes.length;
@@ -147,11 +199,43 @@ export const applyCircularLayout = (nodes: Node[], edges: Edge[]): { nodes: Node
     return {
       ...node,
       position: { x, y },
-      sourcePosition: Position.Right,
-      targetPosition: Position.Left,
+      sourcePosition: Position.Bottom,
+      targetPosition: Position.Top,
     };
   });
 
+  console.log('✓ Circular layout applied:', layoutedNodes.length, 'nodes');
+  return { nodes: layoutedNodes, edges };
+};
+
+export const applyGridLayout = (
+  nodes: Node[],
+  edges: Edge[]
+): { nodes: Node[]; edges: Edge[] } => {
+  if (nodes.length === 0) {
+    return { nodes, edges };
+  }
+
+  const cols = Math.ceil(Math.sqrt(nodes.length));
+  const cellWidth = 350;
+  const cellHeight = 250;
+
+  const layoutedNodes = nodes.map((node, index) => {
+    const col = index % cols;
+    const row = Math.floor(index / cols);
+    
+    return {
+      ...node,
+      position: {
+        x: col * cellWidth + 100,
+        y: row * cellHeight + 100,
+      },
+      sourcePosition: Position.Bottom,
+      targetPosition: Position.Top,
+    };
+  });
+
+  console.log('✓ Grid layout applied:', layoutedNodes.length, 'nodes');
   return { nodes: layoutedNodes, edges };
 };
 
@@ -170,8 +254,7 @@ export const highlightPath = (
     },
     style: {
       ...node.style,
-      opacity: pathSet.has(node.id) ? 1 : 0.3,
-      filter: pathSet.has(node.id) ? 'drop-shadow(0 0 10px rgba(59, 130, 246, 0.5))' : 'none',
+      opacity: pathSet.has(node.id) ? 1 : 0.4,
     },
   }));
 
@@ -182,9 +265,9 @@ export const highlightPath = (
       animated: isHighlighted,
       style: {
         ...edge.style,
-        stroke: isHighlighted ? '#3b82f6' : '#94a3b8',
-        strokeWidth: isHighlighted ? 3 : 2,
-        opacity: isHighlighted ? 1 : 0.3,
+        stroke: isHighlighted ? '#DC2626' : '#6B7280',
+        strokeWidth: isHighlighted ? 3 : 2.5,
+        opacity: isHighlighted ? 1 : 0.4,
       },
     };
   });
@@ -192,7 +275,10 @@ export const highlightPath = (
   return { nodes: highlightedNodes, edges: highlightedEdges };
 };
 
-export const clearHighlights = (nodes: Node[], edges: Edge[]): { nodes: Node[]; edges: Edge[] } => {
+export const clearHighlights = (
+  nodes: Node[],
+  edges: Edge[]
+): { nodes: Node[]; edges: Edge[] } => {
   const clearedNodes = nodes.map((node) => ({
     ...node,
     data: {
@@ -202,7 +288,6 @@ export const clearHighlights = (nodes: Node[], edges: Edge[]): { nodes: Node[]; 
     style: {
       ...node.style,
       opacity: 1,
-      filter: 'none',
     },
   }));
 
@@ -211,8 +296,8 @@ export const clearHighlights = (nodes: Node[], edges: Edge[]): { nodes: Node[]; 
     animated: true,
     style: {
       ...edge.style,
-      stroke: '#94a3b8',
-      strokeWidth: 2,
+      stroke: '#6B7280',
+      strokeWidth: 2.5,
       opacity: 1,
     },
   }));

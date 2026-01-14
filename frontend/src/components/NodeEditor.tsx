@@ -1,70 +1,39 @@
+// frontend/src/components/NodeEditor.tsx - CLEAN & FUNCTIONAL
 import React, { useState, useEffect } from 'react';
 import { Node } from 'reactflow';
-import { X, Save, Trash2, Plus, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { NodeType, NodeUpdate, NodeCreate } from '../types';
+import { NodeType, NodeCreate, NodeUpdate } from '../types';
+import { X, Save, Plus, Trash2 } from 'lucide-react';
 
 interface NodeEditorProps {
   node: Node | null;
+  mode: 'create' | 'edit';
   onClose: () => void;
   onUpdate: (nodeId: string, nodeType: NodeType, data: NodeUpdate) => Promise<void>;
   onDelete: (nodeId: string, nodeType: NodeType) => Promise<void>;
   onCreate: (data: NodeCreate) => Promise<void>;
-  mode?: 'edit' | 'create';
 }
 
 export const NodeEditor: React.FC<NodeEditorProps> = ({
   node,
+  mode,
   onClose,
   onUpdate,
   onDelete,
   onCreate,
-  mode = 'edit',
 }) => {
+  const [nodeType, setNodeType] = useState<NodeType>(
+    node?.data.nodeType || 'Country'
+  );
   const [formData, setFormData] = useState<Record<string, any>>({});
-  const [nodeType, setNodeType] = useState<NodeType>('Country');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
 
   useEffect(() => {
     if (node && mode === 'edit') {
-      setFormData(node.data);
       setNodeType(node.data.nodeType);
-    } else if (mode === 'create') {
-      initializeFormData(nodeType);
+      setFormData(node.data);
     }
-  }, [node, mode, nodeType]);
-
-  const initializeFormData = (type: NodeType) => {
-    const defaults: Record<NodeType, Record<string, any>> = {
-      Country: {
-        id: '',
-        name: '',
-        code: '',
-        region: '',
-        dataProtectionRegime: '',
-        adequacyStatus: 'Not Adequate',
-      },
-      Database: {
-        id: '',
-        name: '',
-        countryId: '',
-        type: 'PostgreSQL',
-        classification: 'Internal',
-        owner: '',
-      },
-      Attribute: {
-        id: '',
-        name: '',
-        databaseId: '',
-        dataType: 'STRING',
-        category: '',
-        sensitivity: 'Medium',
-        isPII: false,
-      },
-    };
-    setFormData(defaults[type]);
-  };
+  }, [node, mode]);
 
   const handleInputChange = (field: string, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -74,7 +43,7 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({
   const handleSave = async () => {
     setSaving(true);
     setError(null);
-    
+
     try {
       if (mode === 'create') {
         await onCreate({
@@ -82,12 +51,11 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({
           properties: formData,
         });
       } else if (node) {
-        await onUpdate(node.id, nodeType, { properties: formData });
+        await onUpdate(node.id, nodeType, {
+          properties: formData,
+        });
       }
-      setSuccess(true);
-      setTimeout(() => {
-        onClose();
-      }, 1000);
+      onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save');
     } finally {
@@ -96,13 +64,9 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({
   };
 
   const handleDelete = async () => {
-    if (!node || !window.confirm('Are you sure you want to delete this node?')) {
-      return;
-    }
+    if (!node || !window.confirm('Delete this node?')) return;
 
     setSaving(true);
-    setError(null);
-    
     try {
       await onDelete(node.id, nodeType);
       onClose();
@@ -118,33 +82,23 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({
       case 'Country':
         return (
           <>
-            <FormField label="ID" required>
-              <input
-                type="text"
-                value={formData.id || ''}
-                onChange={(e) => handleInputChange('id', e.target.value)}
-                className="form-input"
-                disabled={mode === 'edit'}
-                placeholder="e.g., france"
-              />
-            </FormField>
-            <FormField label="Name" required>
+            <FormField label="Country Name" required>
               <input
                 type="text"
                 value={formData.name || ''}
                 onChange={(e) => handleInputChange('name', e.target.value)}
                 className="form-input"
-                placeholder="e.g., France"
+                placeholder="United States"
               />
             </FormField>
             <FormField label="Country Code" required>
               <input
                 type="text"
                 value={formData.code || ''}
-                onChange={(e) => handleInputChange('code', e.target.value.toUpperCase())}
+                onChange={(e) => handleInputChange('code', e.target.value)}
                 className="form-input"
+                placeholder="US"
                 maxLength={2}
-                placeholder="e.g., FR"
               />
             </FormField>
             <FormField label="Region" required>
@@ -154,32 +108,36 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({
                 className="form-input"
               >
                 <option value="">Select Region</option>
-                <option value="Europe">Europe</option>
-                <option value="Asia">Asia</option>
                 <option value="North America">North America</option>
-                <option value="South America">South America</option>
+                <option value="Europe">Europe</option>
+                <option value="Asia Pacific">Asia Pacific</option>
+                <option value="Latin America">Latin America</option>
+                <option value="Middle East">Middle East</option>
                 <option value="Africa">Africa</option>
-                <option value="Oceania">Oceania</option>
               </select>
             </FormField>
-            <FormField label="Data Protection Regime">
+            <FormField label="Data Protection Regime" required>
               <input
                 type="text"
                 value={formData.dataProtectionRegime || ''}
-                onChange={(e) => handleInputChange('dataProtectionRegime', e.target.value)}
+                onChange={(e) =>
+                  handleInputChange('dataProtectionRegime', e.target.value)
+                }
                 className="form-input"
-                placeholder="e.g., GDPR"
+                placeholder="GDPR, CCPA"
               />
             </FormField>
             <FormField label="Adequacy Status" required>
               <select
                 value={formData.adequacyStatus || ''}
-                onChange={(e) => handleInputChange('adequacyStatus', e.target.value)}
+                onChange={(e) =>
+                  handleInputChange('adequacyStatus', e.target.value)
+                }
                 className="form-input"
               >
                 <option value="Adequate">Adequate</option>
                 <option value="Not Adequate">Not Adequate</option>
-                <option value="Partially Adequate">Partially Adequate</option>
+                <option value="Partial">Partial</option>
               </select>
             </FormField>
           </>
@@ -188,32 +146,13 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({
       case 'Database':
         return (
           <>
-            <FormField label="ID" required>
-              <input
-                type="text"
-                value={formData.id || ''}
-                onChange={(e) => handleInputChange('id', e.target.value)}
-                className="form-input"
-                disabled={mode === 'edit'}
-                placeholder="e.g., france_customer_db"
-              />
-            </FormField>
-            <FormField label="Name" required>
+            <FormField label="Database Name" required>
               <input
                 type="text"
                 value={formData.name || ''}
                 onChange={(e) => handleInputChange('name', e.target.value)}
                 className="form-input"
-                placeholder="e.g., France Customer Database"
-              />
-            </FormField>
-            <FormField label="Country ID" required>
-              <input
-                type="text"
-                value={formData.countryId || ''}
-                onChange={(e) => handleInputChange('countryId', e.target.value)}
-                className="form-input"
-                placeholder="e.g., france"
+                placeholder="Customer Database"
               />
             </FormField>
             <FormField label="Database Type" required>
@@ -222,11 +161,10 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({
                 onChange={(e) => handleInputChange('type', e.target.value)}
                 className="form-input"
               >
+                <option value="">Select Type</option>
                 <option value="PostgreSQL">PostgreSQL</option>
                 <option value="MySQL">MySQL</option>
                 <option value="MongoDB">MongoDB</option>
-                <option value="Snowflake">Snowflake</option>
-                <option value="BigQuery">BigQuery</option>
                 <option value="Oracle">Oracle</option>
                 <option value="SQL Server">SQL Server</option>
               </select>
@@ -234,7 +172,9 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({
             <FormField label="Classification" required>
               <select
                 value={formData.classification || ''}
-                onChange={(e) => handleInputChange('classification', e.target.value)}
+                onChange={(e) =>
+                  handleInputChange('classification', e.target.value)
+                }
                 className="form-input"
               >
                 <option value="Public">Public</option>
@@ -249,7 +189,7 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({
                 value={formData.owner || ''}
                 onChange={(e) => handleInputChange('owner', e.target.value)}
                 className="form-input"
-                placeholder="e.g., Data Engineering Team"
+                placeholder="Data Team"
               />
             </FormField>
           </>
@@ -258,32 +198,13 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({
       case 'Attribute':
         return (
           <>
-            <FormField label="ID" required>
-              <input
-                type="text"
-                value={formData.id || ''}
-                onChange={(e) => handleInputChange('id', e.target.value)}
-                className="form-input"
-                disabled={mode === 'edit'}
-                placeholder="e.g., customer_email"
-              />
-            </FormField>
-            <FormField label="Name" required>
+            <FormField label="Attribute Name" required>
               <input
                 type="text"
                 value={formData.name || ''}
                 onChange={(e) => handleInputChange('name', e.target.value)}
                 className="form-input"
-                placeholder="e.g., email_address"
-              />
-            </FormField>
-            <FormField label="Database ID" required>
-              <input
-                type="text"
-                value={formData.databaseId || ''}
-                onChange={(e) => handleInputChange('databaseId', e.target.value)}
-                className="form-input"
-                placeholder="e.g., france_customer_db"
+                placeholder="Email Address"
               />
             </FormField>
             <FormField label="Data Type" required>
@@ -292,14 +213,14 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({
                 onChange={(e) => handleInputChange('dataType', e.target.value)}
                 className="form-input"
               >
-                <option value="STRING">STRING</option>
-                <option value="INTEGER">INTEGER</option>
-                <option value="DECIMAL">DECIMAL</option>
-                <option value="BOOLEAN">BOOLEAN</option>
-                <option value="DATE">DATE</option>
-                <option value="TIMESTAMP">TIMESTAMP</option>
+                <option value="">Select Type</option>
+                <option value="String">String</option>
+                <option value="Integer">Integer</option>
+                <option value="Float">Float</option>
+                <option value="Boolean">Boolean</option>
+                <option value="Date">Date</option>
+                <option value="Timestamp">Timestamp</option>
                 <option value="JSON">JSON</option>
-                <option value="TEXT">TEXT</option>
               </select>
             </FormField>
             <FormField label="Category" required>
@@ -308,13 +229,15 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({
                 value={formData.category || ''}
                 onChange={(e) => handleInputChange('category', e.target.value)}
                 className="form-input"
-                placeholder="e.g., Personal Data"
+                placeholder="Contact Information"
               />
             </FormField>
             <FormField label="Sensitivity" required>
               <select
                 value={formData.sensitivity || ''}
-                onChange={(e) => handleInputChange('sensitivity', e.target.value)}
+                onChange={(e) =>
+                  handleInputChange('sensitivity', e.target.value)
+                }
                 className="form-input"
               >
                 <option value="Low">Low</option>
@@ -324,14 +247,18 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({
               </select>
             </FormField>
             <FormField label="PII Classification">
-              <label className="flex items-center gap-3 cursor-pointer p-3 glass rounded-xl">
+              <label className="flex items-center gap-3 p-3 card rounded-lg cursor-pointer hover:shadow-md transition-all">
                 <input
                   type="checkbox"
                   checked={formData.isPII || false}
-                  onChange={(e) => handleInputChange('isPII', e.target.checked)}
-                  className="w-5 h-5 text-indigo-600 bg-white border-gray-300 rounded focus:ring-indigo-500 focus:ring-2"
+                  onChange={(e) =>
+                    handleInputChange('isPII', e.target.checked)
+                  }
+                  className="w-4 h-4"
                 />
-                <span className="text-sm font-medium text-gray-700">Contains Personally Identifiable Information</span>
+                <span className="text-sm font-medium text-gray-900">
+                  Contains Personally Identifiable Information
+                </span>
               </label>
             </FormField>
           </>
@@ -342,117 +269,103 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({
   if (!node && mode === 'edit') return null;
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50 p-4 animate-fade-in"
+    <div
+      className="fixed inset-0 flex items-center justify-center z-50 p-4"
       style={{
         background: 'rgba(0, 0, 0, 0.4)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)'
+        backdropFilter: 'blur(4px)',
       }}
+      onClick={onClose}
     >
-      <div className="glass rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col animate-slide-in-right">
-        {/* Header with gradient */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-t-3xl">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl glass-ultra-light flex items-center justify-center shadow-lg">
-              {mode === 'create' ? <Plus size={24} className="text-white" /> : <Save size={24} className="text-white" />}
-            </div>
-            <div>
-              <h2 className="text-xl font-bold text-white tracking-tight">
-                {mode === 'create' ? 'Create New Node' : 'Edit Node'}
-              </h2>
-              <p className="text-sm text-indigo-100 font-medium">
-                {mode === 'create' ? 'Add a new node to your lineage graph' : 'Update node properties'}
-              </p>
-            </div>
+      <div
+        className="card rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col animate-fade-in"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b border-gray-200 bg-gray-50 rounded-t-lg">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900 mb-1">
+              {mode === 'create' ? 'Create Node' : 'Edit Node'}
+            </h2>
+            <p className="text-sm text-gray-600">
+              {mode === 'create'
+                ? 'Add a new node to the lineage graph'
+                : 'Update node properties'}
+            </p>
           </div>
           <button
             onClick={onClose}
-            className="text-white hover:text-gray-200 transition-colors p-2 glass-ultra-light rounded-xl"
+            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
           >
-            <X size={24} />
+            <X size={20} />
           </button>
         </div>
 
-        {/* Form Content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
-          {mode === 'create' && (
-            <FormField label="Node Type" required>
-              <select
-                value={nodeType}
-                onChange={(e) => {
-                  const newType = e.target.value as NodeType;
-                  setNodeType(newType);
-                  initializeFormData(newType);
-                }}
-                className="form-input"
-              >
-                <option value="Country">Country</option>
-                <option value="Database">Database</option>
-                <option value="Attribute">Attribute</option>
-              </select>
-            </FormField>
-          )}
-
-          {renderFormFields()}
-
+        {/* Form */}
+        <div className="flex-1 overflow-y-auto p-6">
           {error && (
-            <div className="glass-ultra-light border-l-4 border-red-500 rounded-2xl p-4 flex items-start gap-3 animate-fade-in shadow-lg">
-              <div className="w-10 h-10 rounded-xl bg-red-500 bg-opacity-20 flex items-center justify-center">
-                <AlertCircle className="text-red-600" size={20} />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-red-900">Error</p>
-                <p className="text-sm text-red-700">{error}</p>
-              </div>
+            <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm text-red-600 font-medium">{error}</p>
             </div>
           )}
 
-          {success && (
-            <div className="glass-ultra-light border-l-4 border-green-500 rounded-2xl p-4 flex items-start gap-3 animate-fade-in shadow-lg">
-              <div className="w-10 h-10 rounded-xl bg-green-500 bg-opacity-20 flex items-center justify-center">
-                <CheckCircle2 className="text-green-600" size={20} />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-green-900">Success</p>
-                <p className="text-sm text-green-700">Node saved successfully!</p>
-              </div>
-            </div>
-          )}
+          <div className="space-y-4">
+            {mode === 'create' && (
+              <FormField label="Node Type" required>
+                <select
+                  value={nodeType}
+                  onChange={(e) => setNodeType(e.target.value as NodeType)}
+                  className="form-input"
+                >
+                  <option value="Country">Country</option>
+                  <option value="Database">Database</option>
+                  <option value="Attribute">Attribute</option>
+                </select>
+              </FormField>
+            )}
+
+            {renderFormFields()}
+          </div>
         </div>
 
-        {/* Footer Actions */}
-        <div className="flex gap-3 p-6 border-t border-gray-200 glass rounded-b-3xl">
+        {/* Footer */}
+        <div className="flex items-center justify-between gap-3 p-6 border-t border-gray-200 bg-gray-50 rounded-b-lg">
           {mode === 'edit' && (
             <button
               onClick={handleDelete}
               disabled={saving}
-              className="flex items-center gap-2 px-6 py-3 bg-red-500 text-white rounded-2xl hover:bg-red-600 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl font-semibold tracking-wide"
-              style={{
-                boxShadow: '0 4px 12px rgba(239, 68, 68, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-              }}
+              className="flex items-center gap-2 px-4 py-2 bg-white text-red-600 border-2 border-red-600 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 font-medium text-sm"
             >
-              <Trash2 size={18} />
+              <Trash2 size={16} />
               Delete
             </button>
           )}
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-2xl hover:from-indigo-600 hover:to-purple-700 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg font-semibold tracking-wide"
-            style={{
-              boxShadow: '0 8px 16px rgba(99, 102, 241, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-            }}
-          >
-            {mode === 'create' ? <Plus size={18} /> : <Save size={18} />}
-            {saving ? (
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin-smooth"></div>
-                <span>Saving...</span>
-              </div>
-            ) : (
-              mode === 'create' ? 'Create Node' : 'Save Changes'
-            )}
-          </button>
+          <div className="flex items-center gap-3 ml-auto">
+            <button
+              onClick={onClose}
+              disabled={saving}
+              className="btn-secondary px-6 py-2.5"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="btn-primary flex items-center gap-2 px-6 py-2.5"
+            >
+              {mode === 'create' ? <Plus size={16} /> : <Save size={16} />}
+              {saving ? (
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span>Saving...</span>
+                </div>
+              ) : mode === 'create' ? (
+                'Create'
+              ) : (
+                'Save'
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -468,9 +381,9 @@ interface FormFieldProps {
 const FormField: React.FC<FormFieldProps> = ({ label, required, children }) => {
   return (
     <div>
-      <label className="block text-sm font-semibold text-gray-700 mb-2 tracking-tight">
+      <label className="block text-sm font-semibold text-gray-900 mb-2">
         {label}
-        {required && <span className="text-red-500 ml-1">*</span>}
+        {required && <span className="text-red-600 ml-1">*</span>}
       </label>
       {children}
     </div>

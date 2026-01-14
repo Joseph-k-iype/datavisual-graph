@@ -1,4 +1,5 @@
-import React, { useCallback, useMemo } from 'react';
+// frontend/src/components/LineageGraph.tsx - FIXED WITH HANDLES
+import React, { useMemo, useCallback } from 'react';
 import ReactFlow, {
   Node,
   Edge,
@@ -7,18 +8,17 @@ import ReactFlow, {
   MiniMap,
   useNodesState,
   useEdgesState,
-  ConnectionMode,
-  Panel,
+  Handle,
+  Position,
+  ConnectionLineType,
+  MarkerType,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { Database, Globe, Tag, Loader2, Sparkles } from 'lucide-react';
-import { NodeType } from '../types';
+import { Globe, Database, Tag, Shield } from 'lucide-react';
 
-interface CustomNodeData {
+interface NodeData {
   label: string;
-  nodeType: NodeType;
-  color: string;
-  highlighted?: boolean;
+  nodeType: string;
   [key: string]: any;
 }
 
@@ -27,58 +27,66 @@ interface LineageGraphProps {
   edges: Edge[];
   loading: boolean;
   onNodeClick?: (node: Node) => void;
-  onNodeContextMenu?: (event: React.MouseEvent, node: Node) => void;
 }
 
-const CustomNode: React.FC<{ data: CustomNodeData; selected: boolean }> = ({ data, selected }) => {
-  const Icon = data.nodeType === 'Country' 
-    ? Globe 
-    : data.nodeType === 'Database' 
-    ? Database 
-    : Tag;
-
-  const gradientClass = data.nodeType === 'Country'
-    ? 'country'
-    : data.nodeType === 'Database'
-    ? 'database'
-    : 'attribute';
+// FIXED: Custom Node with proper source/target handles
+const CustomNode: React.FC<{ data: NodeData }> = ({ data }) => {
+  const getIcon = () => {
+    switch (data.nodeType) {
+      case 'Country':
+        return <Globe size={18} className="text-red-600" />;
+      case 'Database':
+        return <Database size={18} className="text-gray-700" />;
+      case 'Attribute':
+        return <Tag size={18} className="text-gray-600" />;
+      default:
+        return <Shield size={18} className="text-gray-500" />;
+    }
+  };
 
   return (
-    <div className={`node-card ${gradientClass} ${data.highlighted ? 'highlighted' : ''} ${selected ? 'ring-4 ring-white ring-opacity-50' : ''}`}>
+    <div className={`node-card ${data.nodeType.toLowerCase()} ${data.highlighted ? 'highlighted' : ''}`}>
+      {/* CRITICAL FIX: Add handles for edges to connect */}
+      <Handle
+        type="target"
+        position={Position.Top}
+        id="top"
+        style={{
+          background: '#7A7A7A',
+          width: 10,
+          height: 10,
+          border: '2px solid white',
+        }}
+      />
+      
       <div className="node-inner">
-        <div className="flex items-start gap-3 mb-3">
-          <div className={`p-2 rounded-lg bg-gradient-to-br ${
-            data.nodeType === 'Country' 
-              ? 'from-indigo-500 to-purple-600' 
-              : data.nodeType === 'Database'
-              ? 'from-pink-500 to-rose-600'
-              : 'from-cyan-500 to-blue-600'
-          } shadow-lg`}>
-            <Icon size={20} className="text-white" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
-              {data.nodeType}
-            </div>
-            <div className="text-base font-bold text-gray-900 truncate">
-              {data.label}
-            </div>
+        {/* Type with icon */}
+        <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-200">
+          {getIcon()}
+          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            {data.nodeType}
           </div>
         </div>
         
-        <div className="space-y-2 text-xs text-gray-600">
+        {/* Node name */}
+        <div className="font-semibold text-base text-gray-900 mb-3">
+          {data.label}
+        </div>
+        
+        {/* Details */}
+        <div className="text-xs text-gray-600 space-y-2">
           {data.nodeType === 'Country' && (
             <>
-              <div className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+              <div className="flex justify-between items-center">
                 <span className="text-gray-500">Region</span>
-                <span className="font-semibold text-gray-900">{data.region}</span>
+                <span className="font-medium text-gray-900">{data.region}</span>
               </div>
-              <div className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+              <div className="flex justify-between items-center">
                 <span className="text-gray-500">Status</span>
-                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
                   data.adequacyStatus === 'Adequate' 
-                    ? 'bg-green-100 text-green-700' 
-                    : 'bg-amber-100 text-amber-700'
+                    ? 'bg-green-50 text-green-700 border border-green-200' 
+                    : 'bg-amber-50 text-amber-700 border border-amber-200'
                 }`}>
                   {data.adequacyStatus}
                 </span>
@@ -87,18 +95,18 @@ const CustomNode: React.FC<{ data: CustomNodeData; selected: boolean }> = ({ dat
           )}
           {data.nodeType === 'Database' && (
             <>
-              <div className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+              <div className="flex justify-between items-center">
                 <span className="text-gray-500">Type</span>
-                <span className="font-semibold text-gray-900">{data.type}</span>
+                <span className="font-medium text-gray-900">{data.type}</span>
               </div>
-              <div className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
-                <span className="text-gray-500">Class</span>
-                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+              <div className="flex justify-between items-center">
+                <span className="text-gray-500">Classification</span>
+                <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
                   data.classification === 'Restricted' 
-                    ? 'bg-red-100 text-red-700'
+                    ? 'bg-red-50 text-red-700 border border-red-200'
                     : data.classification === 'Confidential'
-                    ? 'bg-orange-100 text-orange-700'
-                    : 'bg-blue-100 text-blue-700'
+                    ? 'bg-orange-50 text-orange-700 border border-orange-200'
+                    : 'bg-blue-50 text-blue-700 border border-blue-200'
                 }`}>
                   {data.classification}
                 </span>
@@ -107,24 +115,33 @@ const CustomNode: React.FC<{ data: CustomNodeData; selected: boolean }> = ({ dat
           )}
           {data.nodeType === 'Attribute' && (
             <>
-              <div className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+              <div className="flex justify-between items-center">
                 <span className="text-gray-500">Type</span>
-                <span className="font-semibold text-gray-900">{data.dataType}</span>
-              </div>
-              <div className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
-                <span className="text-gray-500">Category</span>
-                <span className="font-semibold text-gray-900 truncate">{data.category}</span>
+                <span className="font-medium text-gray-900">{data.dataType}</span>
               </div>
               {data.isPII && (
-                <div className="flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 rounded-lg">
-                  <Sparkles size={12} />
-                  <span className="text-xs font-semibold">PII Data</span>
+                <div className="inline-flex items-center gap-1 px-2 py-1 bg-red-50 text-red-700 border border-red-200 rounded text-xs font-semibold mt-2">
+                  <Shield size={12} />
+                  PII
                 </div>
               )}
             </>
           )}
         </div>
       </div>
+
+      {/* CRITICAL FIX: Add source handle */}
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        id="bottom"
+        style={{
+          background: '#7A7A7A',
+          width: 10,
+          height: 10,
+          border: '2px solid white',
+        }}
+      />
     </div>
   );
 };
@@ -134,7 +151,6 @@ export const LineageGraph: React.FC<LineageGraphProps> = ({
   edges: initialEdges,
   loading,
   onNodeClick,
-  onNodeContextMenu,
 }) => {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
@@ -161,114 +177,68 @@ export const LineageGraph: React.FC<LineageGraphProps> = ({
     [onNodeClick]
   );
 
-  const handleNodeContextMenu = useCallback(
-    (event: React.MouseEvent, node: Node) => {
-      event.preventDefault();
-      onNodeContextMenu?.(event, node);
+  // FIXED: Proper edge configuration with visible styling
+  const defaultEdgeOptions = {
+    type: 'smoothstep',
+    animated: true,
+    style: {
+      strokeWidth: 2.5,
+      stroke: '#6B7280', // Visible gray-500
     },
-    [onNodeContextMenu]
-  );
+    markerEnd: {
+      type: MarkerType.ArrowClosed,
+      width: 22,
+      height: 22,
+      color: '#6B7280',
+    },
+  };
+
+  const proOptions = { hideAttribution: true };
 
   return (
-    <div className="w-full h-full relative rounded-2xl overflow-hidden shadow-2xl">
-      {loading && (
-        <div className="absolute inset-0 glass flex items-center justify-center z-50 animate-fade-in">
-          <div className="flex flex-col items-center gap-4">
-            <div className="relative">
-              <div className="w-16 h-16 border-4 border-indigo-200 rounded-full"></div>
-              <div className="w-16 h-16 border-4 border-indigo-600 rounded-full border-t-transparent animate-spin absolute top-0"></div>
-            </div>
-            <div className="text-center">
-              <p className="text-lg font-semibold text-gray-900">Loading Lineage</p>
-              <p className="text-sm text-gray-600">Analyzing data flows...</p>
-            </div>
-          </div>
-        </div>
-      )}
-      
+    <div className="w-full h-full bg-gray-50">
       <ReactFlow
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={handleNodeClick}
-        onNodeContextMenu={handleNodeContextMenu}
         nodeTypes={nodeTypes}
-        connectionMode={ConnectionMode.Loose}
+        defaultEdgeOptions={defaultEdgeOptions}
+        connectionLineType={ConnectionLineType.SmoothStep}
         fitView
+        fitViewOptions={{
+          padding: 0.15,
+          includeHiddenNodes: false,
+          minZoom: 0.2,
+          maxZoom: 1.5,
+        }}
         minZoom={0.1}
         maxZoom={2}
-        defaultEdgeOptions={{
-          animated: true,
-          style: { strokeWidth: 2.5 },
-        }}
-        style={{
-          background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
-        }}
+        proOptions={proOptions}
       >
-        <defs>
-          <linearGradient id="edge-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#667eea" />
-            <stop offset="100%" stopColor="#764ba2" />
-          </linearGradient>
-        </defs>
-        
-        <Background color="#ddd" gap={20} size={1} />
-        <Controls className="shadow-xl" />
-        <MiniMap
-          nodeColor={(node) => {
-            const data = node.data as CustomNodeData;
-            return data.nodeType === 'Country' 
-              ? '#667eea' 
-              : data.nodeType === 'Database'
-              ? '#f093fb'
-              : '#4facfe';
-          }}
-          maskColor="rgba(0, 0, 0, 0.05)"
-          className="shadow-xl"
+        <Background 
+          color="#D1D5DB" 
+          gap={20} 
+          size={1}
         />
         
-        <Panel position="top-left" className="glass rounded-2xl shadow-xl">
-          <div className="p-4">
-            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
-              Node Types
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 shadow-lg"></div>
-                <div>
-                  <div className="text-sm font-semibold text-gray-900">Country</div>
-                  <div className="text-xs text-gray-500">Jurisdictions</div>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-pink-500 to-rose-600 shadow-lg"></div>
-                <div>
-                  <div className="text-sm font-semibold text-gray-900">Database</div>
-                  <div className="text-xs text-gray-500">Data Stores</div>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 shadow-lg"></div>
-                <div>
-                  <div className="text-sm font-semibold text-gray-900">Attribute</div>
-                  <div className="text-xs text-gray-500">Data Fields</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </Panel>
-
-        <Panel position="top-right" className="glass rounded-2xl shadow-xl">
-          <div className="px-4 py-3">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span className="text-sm font-semibold text-gray-900">
-                Live Tracking
-              </span>
-            </div>
-          </div>
-        </Panel>
+        <Controls 
+          className="!bg-white !border !border-gray-300 !shadow-lg !rounded-lg"
+        />
+        
+        <MiniMap
+          nodeColor={(node) => {
+            const data = node.data as NodeData;
+            return data.nodeType === 'Country'
+              ? '#DC2626'
+              : data.nodeType === 'Database'
+              ? '#4B5563'
+              : '#6B7280';
+          }}
+          maskColor="rgba(0, 0, 0, 0.05)"
+          className="!bg-white !border !border-gray-300 !shadow-lg !rounded-lg"
+        />
       </ReactFlow>
     </div>
   );

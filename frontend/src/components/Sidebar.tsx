@@ -1,3 +1,4 @@
+// frontend/src/components/Sidebar.tsx - FUNCTIONAL MINIMAL
 import React from 'react';
 import { Stats } from '../types';
 import {
@@ -10,15 +11,12 @@ import {
   RefreshCw,
   Filter,
   TrendingUp,
-  Shield,
-  Zap,
 } from 'lucide-react';
 
 interface SidebarProps {
   stats: Stats | null;
   onRefresh: () => void;
   onCreateNode: () => void;
-  onFilterChange?: (filters: any) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -27,111 +25,91 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCreateNode,
 }) => {
   return (
-    <div className="w-80 glass-thick flex flex-col h-full shadow-2xl animate-slide-in-right">
-      {/* Header with Apple-style vibrancy */}
-      <div className="p-6 bg-gradient-to-br from-indigo-600 to-purple-700 relative overflow-hidden">
-        <div className="absolute inset-0 shimmer"></div>
-        <div className="relative z-10">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-12 h-12 rounded-2xl glass-ultra-light flex items-center justify-center shadow-lg">
-              <Shield size={24} className="text-white" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-white tracking-tight">
-                Data Lineage
-              </h1>
-            </div>
-          </div>
-          <p className="text-indigo-100 text-sm font-medium">
-            Cross-border Transfer Tracking
-          </p>
-        </div>
+    <div className="w-80 sidebar flex flex-col h-full animate-fade-in">
+      {/* Header with clear hierarchy */}
+      <div className="p-6 border-b-2 border-gray-300">
+        <h2 className="text-lg font-semibold text-gray-900 mb-2">Data Lineage</h2>
+        <p className="text-sm text-gray-600 font-normal leading-relaxed">
+          Cross-border Transfer Tracking
+        </p>
       </div>
 
-      {/* Quick Actions with glass buttons */}
-      <div className="p-4 space-y-3 border-b border-white border-opacity-10">
+      {/* Quick Actions */}
+      <div className="p-5 space-y-3 border-b border-gray-300">
         <button
           onClick={onCreateNode}
-          className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-2xl hover:from-indigo-600 hover:to-purple-700 transition-all duration-300 shadow-lg font-semibold tracking-wide"
-          style={{
-            boxShadow: '0 8px 16px rgba(99, 102, 241, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)'
-          }}
+          className="btn-primary w-full flex items-center justify-center gap-2"
         >
-          <Plus size={18} />
+          <Plus size={16} />
           Create Node
         </button>
         <button
           onClick={onRefresh}
-          className="btn-glass w-full flex items-center justify-center gap-2 px-4 py-3 text-white rounded-2xl font-semibold tracking-wide"
+          className="btn-secondary w-full flex items-center justify-center gap-2"
         >
-          <RefreshCw size={18} />
+          <RefreshCw size={16} />
           Refresh View
         </button>
       </div>
 
       {/* Stats Section */}
-      <div className="p-4 flex-1 overflow-y-auto custom-scrollbar">
+      <div className="p-5 flex-1 overflow-y-auto">
         <div className="mb-6">
           <div className="flex items-center gap-2 mb-4">
-            <BarChart3 size={20} className="text-indigo-300" />
-            <h2 className="text-base font-bold text-white tracking-tight">Live Statistics</h2>
+            <BarChart3 size={18} className="text-gray-900" />
+            <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">
+              Statistics
+            </h3>
           </div>
 
           {stats ? (
             <div className="space-y-3 animate-fade-in">
               <StatCard
-                icon={<Globe size={20} className="text-white" />}
+                icon={<Globe size={18} />}
                 label="Countries"
                 value={stats.totalCountries}
-                gradient="from-indigo-500 to-purple-600"
                 trend="+2"
               />
               <StatCard
-                icon={<DatabaseIcon size={20} className="text-white" />}
+                icon={<DatabaseIcon size={18} />}
                 label="Databases"
                 value={stats.totalDatabases}
-                gradient="from-pink-500 to-rose-600"
                 trend="+5"
               />
               <StatCard
-                icon={<Tag size={20} className="text-white" />}
+                icon={<Tag size={18} />}
                 label="Attributes"
                 value={stats.totalAttributes}
-                gradient="from-cyan-500 to-blue-600"
                 trend="+12"
               />
               <StatCard
-                icon={<ArrowRightLeft size={20} className="text-white" />}
+                icon={<ArrowRightLeft size={18} />}
                 label="Transfers"
                 value={stats.totalTransfers}
-                gradient="from-green-500 to-emerald-600"
                 trend="+3"
               />
             </div>
           ) : (
             <div className="space-y-3">
               {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="h-20 glass rounded-2xl animate-pulse"></div>
+                <div key={i} className="h-24 card rounded-lg animate-pulse bg-gray-100"></div>
               ))}
             </div>
           )}
         </div>
 
-        {/* Data Categories with glass tags */}
+        {/* Data Categories */}
         {stats && stats.dataCategories.length > 0 && (
           <div className="mb-6 animate-fade-in">
             <div className="flex items-center gap-2 mb-4">
-              <Filter size={20} className="text-indigo-300" />
-              <h2 className="text-base font-bold text-white tracking-tight">
-                Data Categories
-              </h2>
+              <Filter size={18} className="text-gray-900" />
+              <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">
+                Categories
+              </h3>
             </div>
             <div className="flex flex-wrap gap-2">
               {stats.dataCategories.map((category) => (
-                <span
-                  key={category}
-                  className="tag px-3 py-2 text-xs text-white rounded-full font-semibold shadow-lg cursor-pointer"
-                >
+                <span key={category} className="tag cursor-pointer">
                   {category}
                 </span>
               ))}
@@ -139,41 +117,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
 
-        {/* Regions with glass cards */}
+        {/* Regions */}
         {stats && stats.regions.length > 0 && (
           <div className="animate-fade-in">
             <div className="flex items-center gap-2 mb-4">
-              <Globe size={20} className="text-indigo-300" />
-              <h2 className="text-base font-bold text-white tracking-tight">Regions</h2>
+              <Globe size={18} className="text-gray-900" />
+              <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">
+                Regions
+              </h3>
             </div>
             <div className="space-y-2">
               {stats.regions.map((region) => (
                 <div
                   key={region}
-                  className="card-glass px-4 py-3 rounded-2xl text-sm text-white font-medium cursor-pointer"
+                  className="card rounded-lg p-3 hover:border-gray-400 transition-all cursor-pointer"
                 >
-                  {region}
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-gray-900">{region}</span>
+                    <span className="text-xs text-gray-500 bg-green-50 px-2 py-1 rounded border border-green-200">Active</span>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
         )}
-      </div>
-
-      {/* Footer */}
-      <div className="p-4 border-t border-white border-opacity-10 glass">
-        <div className="flex items-center justify-between text-xs text-gray-300">
-          <div className="flex items-center gap-2">
-            <Zap size={14} className="text-yellow-300" />
-            <span className="font-medium">Powered by FalkorDB</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse shadow-lg" style={{
-              boxShadow: '0 0 8px rgba(74, 222, 128, 0.8)'
-            }}></div>
-            <span className="font-medium">Live</span>
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -183,40 +150,26 @@ interface StatCardProps {
   icon: React.ReactNode;
   label: string;
   value: number;
-  gradient: string;
   trend?: string;
 }
 
-const StatCard: React.FC<StatCardProps> = ({ icon, label, value, gradient, trend }) => {
+const StatCard: React.FC<StatCardProps> = ({ icon, label, value, trend }) => {
   return (
-    <div className="stat-card rounded-2xl p-4 cursor-pointer group">
+    <div className="stat-card">
       <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-3">
-          <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-300`}
-            style={{
-              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.3)'
-            }}
-          >
-            {icon}
-          </div>
-          <span className="text-sm text-gray-200 font-medium">{label}</span>
+        <div className="icon-wrapper">
+          {icon}
         </div>
         {trend && (
-          <div className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold"
-            style={{
-              background: 'rgba(34, 197, 94, 0.2)',
-              backdropFilter: 'blur(10px)',
-              border: '1px solid rgba(34, 197, 94, 0.3)',
-              color: 'rgb(134, 239, 172)'
-            }}
-          >
+          <div className="flex items-center gap-1 text-green-600 bg-green-50 px-2 py-1 rounded border border-green-200">
             <TrendingUp size={12} />
-            {trend}
+            <span className="text-xs font-semibold">{trend}</span>
           </div>
         )}
       </div>
-      <div className="text-3xl font-bold text-white group-hover:scale-105 transition-transform duration-300 tracking-tight">
-        {value}
+      <div className="flex items-baseline gap-2">
+        <div className="text-3xl font-semibold text-gray-900">{value}</div>
+        <div className="text-sm text-gray-600 font-normal">{label}</div>
       </div>
     </div>
   );
