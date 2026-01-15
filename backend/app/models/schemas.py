@@ -121,3 +121,28 @@ class StatsResponse(BaseModel):
     totalTransfers: int
     dataCategories: List[str]
     regions: List[str]
+
+
+# ========== NEW: GROUP SCHEMAS ==========
+
+class GroupNodesRequest(BaseModel):
+    """Request to group multiple nodes"""
+    nodeIds: List[str] = Field(..., description="List of node IDs to group")
+    groupName: str = Field(..., min_length=1, max_length=100, description="Name for the group")
+
+
+class UngroupNodesRequest(BaseModel):
+    """Request to remove group from nodes"""
+    nodeIds: List[str] = Field(..., description="List of node IDs to ungroup")
+
+
+class GroupResponse(BaseModel):
+    """Response for group operations"""
+    groupName: str
+    nodeCount: int
+    nodes: List[NodeResponse]
+
+
+class GroupListResponse(BaseModel):
+    """Response listing all groups"""
+    groups: List[str]

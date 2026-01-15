@@ -5,6 +5,7 @@ from ..models.schemas import (
     GraphNode, GraphEdge, NodeResponse, StatsResponse
 )
 import logging
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -16,13 +17,22 @@ class GraphService:
     def create_node(node_data: NodeCreate) -> NodeResponse:
         """Create a new node in the graph"""
         try:
-            # Build properties string
+            # Generate UUID for the node if not provided
+            node_id = node_data.properties.get('id', str(uuid.uuid4()))
+            
+            # Build properties string - ensure id is included
             props = []
-            params = {}
+            params = {'node_id': node_id}
+            
+            # Add id to properties
+            props.append("id: $node_id")
+            
+            # Add other properties
             for key, value in node_data.properties.items():
-                param_key = f"prop_{key}"
-                params[param_key] = value
-                props.append(f"{key}: ${param_key}")
+                if key != 'id':  # Skip id as we already added it
+                    param_key = f"prop_{key}"
+                    params[param_key] = value
+                    props.append(f"{key}: ${param_key}")
             
             props_str = "{" + ", ".join(props) + "}"
             
@@ -81,9 +91,13 @@ class GraphService:
             params = {"node_id": node_id}
             
             for key, value in update_data.properties.items():
-                param_key = f"prop_{key}"
-                params[param_key] = value
-                set_clauses.append(f"n.{key} = ${param_key}")
+                if key != 'id':  # Don't allow updating the id
+                    param_key = f"prop_{key}"
+                    params[param_key] = value
+                    set_clauses.append(f"n.{key} = ${param_key}")
+            
+            if not set_clauses:
+                raise Exception("No properties to update")
             
             set_str = ", ".join(set_clauses)
             
@@ -166,6 +180,123 @@ class GraphService:
             logger.error(f"Failed to get nodes: {str(e)}")
             raise
     
+    # ========== NEW: GROUP MANAGEMENT ==========
+    
+    @staticmethod
+    def update_node_groups(node_ids: List[str], group_name: str) -> List[NodeResponse]:
+        """Update the 'group' property for multiple nodes"""
+        try:
+            query = """
+            MATCH (n)
+            WHERE n.id IN $node_ids
+            SET n.group = $group_name
+            RETURN n, labels(n)[0] as type
+            """
+            
+            result = db.execute_query(query, {
+                "node_ids": node_ids,
+                "group_name": group_name
+            })
+            
+            updated_nodes = []
+            if result.result_set:
+                for row in result.result_set:
+                    node = row[0]
+                    node_type_str = row[1]
+                    updated_nodes.append(NodeResponse(
+                        id=node.properties.get('id'),
+                        type=node_type_str,
+                        properties=dict(node.properties)
+                    ))
+            
+            return updated_nodes
+            
+        except Exception as e:
+            logger.error(f"Failed to update node groups: {str(e)}")
+            raise
+    
+    @staticmethod
+    def remove_node_groups(node_ids: List[str]) -> List[NodeResponse]:
+        """Remove the 'group' property from multiple nodes"""
+        try:
+            query = """
+            MATCH (n)
+            WHERE n.id IN $node_ids
+            REMOVE n.group
+            RETURN n, labels(n)[0] as type
+            """
+            
+            result = db.execute_query(query, {"node_ids": node_ids})
+            
+            updated_nodes = []
+            if result.result_set:
+                for row in result.result_set:
+                    node = row[0]
+                    node_type_str = row[1]
+                    updated_nodes.append(NodeResponse(
+                        id=node.properties.get('id'),
+                        type=node_type_str,
+                        properties=dict(node.properties)
+                    ))
+            
+            return updated_nodes
+            
+        except Exception as e:
+            logger.error(f"Failed to remove node groups: {str(e)}")
+            raise
+    
+    @staticmethod
+    def get_nodes_by_group(group_name: str) -> List[NodeResponse]:
+        """Get all nodes in a specific group"""
+        try:
+            query = """
+            MATCH (n)
+            WHERE n.group = $group_name
+            RETURN n, labels(n)[0] as type
+            """
+            
+            result = db.execute_query(query, {"group_name": group_name})
+            
+            nodes = []
+            if result.result_set:
+                for row in result.result_set:
+                    node = row[0]
+                    node_type_str = row[1]
+                    nodes.append(NodeResponse(
+                        id=node.properties.get('id'),
+                        type=node_type_str,
+                        properties=dict(node.properties)
+                    ))
+            
+            return nodes
+            
+        except Exception as e:
+            logger.error(f"Failed to get nodes by group: {str(e)}")
+            raise
+    
+    @staticmethod
+    def get_all_groups() -> List[str]:
+        """Get all unique group names"""
+        try:
+            query = """
+            MATCH (n)
+            WHERE n.group IS NOT NULL
+            RETURN DISTINCT n.group as group_name
+            """
+            
+            result = db.execute_query(query)
+            
+            groups = []
+            if result.result_set:
+                for row in result.result_set:
+                    groups.append(row[0])
+            
+            return groups
+            
+        except Exception as e:
+            logger.error(f"Failed to get all groups: {str(e)}")
+            raise
+    
     @staticmethod
     def create_relationship(rel_data: RelationshipCreate) -> Dict[str, Any]:
         """Create a relationship between two nodes"""
@@ -188,83 +319,20 @@ class GraphService:
             MATCH (source:{rel_data.sourceType.value} {{id: $source_id}})
             MATCH (target:{rel_data.targetType.value} {{id: $target_id}})
             CREATE (source)-[r:{rel_data.relationshipType} {props_str}]->(target)
-            RETURN r, source.id as source_id, target.id as target_id
+            RETURN source, r, target
             """
             
             result = db.execute_query(query, params)
             
             if result.result_set and len(result.result_set) > 0:
-                rel = result.result_set[0][0]
                 return {
-                    "type": rel_data.relationshipType,
                     "source": rel_data.sourceId,
                     "target": rel_data.targetId,
-                    "properties": dict(rel.properties) if hasattr(rel, 'properties') else {}
+                    "type": rel_data.relationshipType
                 }
             
             raise Exception("Relationship creation failed")
             
         except Exception as e:
             logger.error(f"Failed to create relationship: {str(e)}")
-            raise
-    
-    @staticmethod
-    def get_stats() -> StatsResponse:
-        """Get graph statistics"""
-        try:
-            query = """
-            MATCH (c:Country)
-            WITH count(c) as countries
-            MATCH (d:Database)
-            WITH countries, count(d) as databases
-            MATCH (a:Attribute)
-            RETURN countries, databases, count(a) as attributes
-            """
-            
-            result = db.execute_query(query)
-            
-            countries = 0
-            databases = 0
-            attributes = 0
-            
-            if result.result_set and len(result.result_set) > 0:
-                row = result.result_set[0]
-                countries = row[0]
-                databases = row[1]
-                attributes = row[2]
-            
-            # Get transfers count
-            transfers_query = "MATCH ()-[r:TRANSFERS_TO]->() RETURN count(r) as transfers"
-            transfers_result = db.execute_query(transfers_query)
-            transfers = transfers_result.result_set[0][0] if transfers_result.result_set else 0
-            
-            # Get unique data categories
-            categories_query = """
-            MATCH ()-[r:TRANSFERS_TO]->()
-            WHERE r.dataCategories IS NOT NULL
-            RETURN DISTINCT r.dataCategories
-            """
-            categories_result = db.execute_query(categories_query)
-            categories = set()
-            if categories_result.result_set:
-                for row in categories_result.result_set:
-                    if row[0]:
-                        categories.update(row[0])
-            
-            # Get unique regions
-            regions_query = "MATCH (c:Country) RETURN DISTINCT c.region"
-            regions_result = db.execute_query(regions_query)
-            regions = [row[0] for row in regions_result.result_set] if regions_result.result_set else []
-            
-            return StatsResponse(
-                totalCountries=countries,
-                totalDatabases=databases,
-                totalAttributes=attributes,
-                totalTransfers=transfers,
-                dataCategories=list(categories),
-                regions=regions
-            )
-            
-        except Exception as e:
-            logger.error(f"Failed to get stats: {str(e)}")
             raise
