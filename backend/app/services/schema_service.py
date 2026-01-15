@@ -1,12 +1,13 @@
 # backend/app/services/schema_service.py
 """
 Schema Service - Manages schema definitions and data instances
+COMPLETE IMPLEMENTATION with ALL PATHS traversal
 """
 
 import uuid
 import json
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
 from ..database import db
 from ..models.schemas import (
     SchemaDefinition, SchemaClass, SchemaRelationship,
@@ -343,7 +344,7 @@ class SchemaService:
     
     @staticmethod
     def get_lineage_graph(schema_id: str, expanded_classes: List[str] = []) -> LineageGraphResponse:
-        """Get hierarchical lineage graph for a schema"""
+        """Get hierarchical lineage graph"""
         try:
             schema = SchemaService.get_schema(schema_id)
             if not schema:
@@ -352,9 +353,9 @@ class SchemaService:
             nodes = []
             edges = []
             
-            # Add schema class nodes
+            # Add schema classes as top-level nodes
             for cls in schema.classes:
-                # Get instance count
+                # Count instances
                 count_query = """
                 MATCH (c:SchemaClass {id: $class_id})<-[:INSTANCE_OF]-(i:DataInstance)
                 RETURN COUNT(i) as count
@@ -362,95 +363,86 @@ class SchemaService:
                 count_result = db.execute_query(count_query, {'class_id': cls.id})
                 instance_count = count_result.result_set[0][0] if count_result.result_set else 0
                 
-                is_expanded = cls.id in expanded_classes
-                
                 nodes.append(LineageNode(
                     id=cls.id,
-                    type="schema_class",
+                    type='schema_class',
                     name=cls.name,
                     schema_id=schema_id,
                     class_id=cls.id,
-                    parent_id=None,
                     data={
                         'description': cls.description,
                         'attributes': cls.attributes,
-                        'instance_count': instance_count,
                         'color': cls.color,
-                        'icon': cls.icon
+                        'icon': cls.icon,
+                        'instance_count': instance_count
                     },
-                    collapsed=not is_expanded
+                    collapsed=cls.id not in expanded_classes
                 ))
-                
-                # If expanded, add data instances as child nodes
-                if is_expanded:
-                    instances_query = """
-                    MATCH (c:SchemaClass {id: $class_id})<-[:INSTANCE_OF]-(i:DataInstance)
-                    RETURN i
-                    LIMIT 100
-                    """
-                    instances_result = db.execute_query(instances_query, {'class_id': cls.id})
-                    
-                    if instances_result.result_set:
-                        for row in instances_result.result_set:
-                            inst_props = dict(row[0].properties)
-                            inst_data = json.loads(inst_props.get('data', '{}'))
-                            
-                            nodes.append(LineageNode(
-                                id=inst_props['id'],
-                                type="data_instance",
-                                name=inst_data.get('name') or inst_data.get('id') or inst_props['id'][:8],
-                                schema_id=schema_id,
-                                class_id=cls.id,
-                                parent_id=cls.id,
-                                data=inst_data,
-                                collapsed=False
-                            ))
-                            
-                            # Add parent-child edge
-                            edges.append(LineageEdge(
-                                id=f"parent_{cls.id}_{inst_props['id']}",
-                                source=cls.id,
-                                target=inst_props['id'],
-                                type="parent_child",
-                                metadata={'relationship_type': 'contains'}
-                            ))
             
-            # Add schema relationship edges
+            # Add schema relationships
             for rel in schema.relationships:
                 edges.append(LineageEdge(
                     id=rel.id,
                     source=rel.source_class_id,
                     target=rel.target_class_id,
-                    type="schema_relationship",
+                    type='schema_relationship',
                     label=rel.name,
-                    cardinality=rel.cardinality,
-                    metadata={
-                        'description': rel.description,
-                        'bidirectional': rel.bidirectional
-                    }
+                    cardinality=rel.cardinality
                 ))
             
-            # Add data relationship edges (only if both classes are expanded)
-            for cls_id in expanded_classes:
-                data_rels_query = """
-                MATCH (source:DataInstance)-[r:DATA_REL]->(target:DataInstance)
-                WHERE source.class_id = $class_id OR target.class_id = $class_id
-                RETURN source.id, target.id, r
+            # If classes are expanded, add their instances
+            for class_id in expanded_classes:
+                instances_query = """
+                MATCH (c:SchemaClass {id: $class_id})<-[:INSTANCE_OF]-(i:DataInstance)
+                RETURN i
                 """
-                rels_result = db.execute_query(data_rels_query, {'class_id': cls_id})
+                instances_result = db.execute_query(instances_query, {'class_id': class_id})
                 
-                if rels_result.result_set:
-                    for row in rels_result.result_set:
-                        source_id = row[0]
-                        target_id = row[1]
-                        rel_props = dict(row[2].properties)
+                if instances_result.result_set:
+                    for row in instances_result.result_set:
+                        inst = row[0]
+                        inst_props = dict(inst.properties)
+                        inst_data = json.loads(inst_props.get('data', '{}'))
+                        
+                        nodes.append(LineageNode(
+                            id=inst_props['id'],
+                            type='data_instance',
+                            name=inst_data.get('name', inst_props['id']),
+                            schema_id=schema_id,
+                            class_id=class_id,
+                            parent_id=class_id,
+                            data=inst_data
+                        ))
+                        
+                        # Parent-child edge
+                        edges.append(LineageEdge(
+                            id=f"parent_{class_id}_{inst_props['id']}",
+                            source=class_id,
+                            target=inst_props['id'],
+                            type='parent_child',
+                            label='instance of'
+                        ))
+                
+                # Get data relationships for this class
+                data_rels_query = """
+                MATCH (c:SchemaClass {id: $class_id})<-[:INSTANCE_OF]-(source:DataInstance)
+                MATCH (source)-[r:DATA_REL]->(target:DataInstance)
+                RETURN r, source.id, target.id
+                """
+                data_rels_result = db.execute_query(data_rels_query, {'class_id': class_id})
+                
+                if data_rels_result.result_set:
+                    for row in data_rels_result.result_set:
+                        rel_props = dict(row[0].properties)
+                        source_id = row[1]
+                        target_id = row[2]
                         
                         edges.append(LineageEdge(
                             id=rel_props['id'],
                             source=source_id,
                             target=target_id,
-                            type="data_relationship",
-                            metadata={'schema_rel_id': rel_props['schema_relationship_id']}
+                            type='data_relationship',
+                            label='related to'
                         ))
             
             return LineageGraphResponse(
@@ -531,7 +523,7 @@ class SchemaService:
                 WITH path, nodes(path) as node_list, relationships(path) as rel_list
                 RETURN [n IN node_list | n.id] as node_ids, 
                        [rel IN rel_list | rel.id] as edge_ids
-                LIMIT 20
+                LIMIT 50
                 """
                 result = db.execute_query(query, {'start_id': start_node_id})
                 
@@ -573,9 +565,21 @@ class SchemaService:
     @staticmethod
     def get_shortest_path(schema_id: str, node_ids: List[str]) -> LineagePathResponse:
         """
-        Find shortest path between multiple nodes using FalkorDB's shortest path algorithm.
+        Find shortest path between multiple nodes (LEGACY METHOD - use get_all_paths_between_nodes instead)
         For 2 nodes: direct shortest path
         For 3+ nodes: finds path connecting all nodes
+        """
+        # Delegate to all_paths with max_depth=10
+        return SchemaService.get_all_paths_between_nodes(schema_id, node_ids, max_depth=10)
+    
+    @staticmethod
+    def get_all_paths_between_nodes(schema_id: str, node_ids: List[str], max_depth: int = 10) -> LineagePathResponse:
+        """
+        Find ALL paths between multiple nodes (not just shortest paths).
+        This returns all possible paths including those through different intermediate nodes.
+        
+        For 2 nodes: finds ALL paths between them
+        For 3+ nodes: finds ALL paths connecting consecutive pairs
         """
         try:
             if len(node_ids) < 2:
@@ -585,359 +589,121 @@ class SchemaService:
             all_nodes = set()
             all_edges = set()
             
-            # For 2 nodes, find direct shortest path
+            # For 2 nodes, find ALL paths (not just shortest)
             if len(node_ids) == 2:
-                node_ids_in_path = []
+                start_id = node_ids[0]
+                end_id = node_ids[1]
                 
-                # Try FalkorDB's shortestPath first (both directions)
-                # Try forward direction
+                # Find all paths in forward direction
                 query_forward = """
                 MATCH (start {id: $start_id}), (end {id: $end_id})
-                WITH shortestPath((start)-[*1..10]->(end)) as path
-                WHERE path IS NOT NULL
-                UNWIND nodes(path) as n
-                RETURN collect(n.id) as node_ids
-                """
+                MATCH p = (start)-[*1..%d]->(end)
+                WITH nodes(p) as node_list, size(nodes(p)) as path_length
+                RETURN [n IN node_list | n.id] as node_ids, path_length
+                ORDER BY path_length
+                """ % max_depth
                 
                 try:
                     result = db.execute_query(query_forward, {
-                        'start_id': node_ids[0],
-                        'end_id': node_ids[1]
+                        'start_id': start_id,
+                        'end_id': end_id
                     })
                     
-                    if result.result_set and result.result_set[0][0]:
-                        node_ids_in_path = result.result_set[0][0]
-                        logger.info(f"Found forward path with {len(node_ids_in_path)} nodes")
-                except Exception as e:
-                    logger.debug(f"Forward shortestPath failed: {str(e)}")
-                
-                # Try backward direction if forward didn't work
-                if not node_ids_in_path:
-                    query_backward = """
-                    MATCH (start {id: $start_id}), (end {id: $end_id})
-                    WITH shortestPath((start)<-[*1..10]-(end)) as path
-                    WHERE path IS NOT NULL
-                    UNWIND nodes(path) as n
-                    RETURN collect(n.id) as node_ids
-                    """
-                    
-                    try:
-                        result = db.execute_query(query_backward, {
-                            'start_id': node_ids[0],
-                            'end_id': node_ids[1]
-                        })
-                        
-                        if result.result_set and result.result_set[0][0]:
-                            node_ids_in_path = result.result_set[0][0]
-                            logger.info(f"Found backward path with {len(node_ids_in_path)} nodes")
-                    except Exception as e:
-                        logger.debug(f"Backward shortestPath failed: {str(e)}")
-                
-                # Fallback: Manual BFS-style path finding if shortestPath didn't work
-                if not node_ids_in_path:
-                    logger.info("ShortestPath failed, trying manual path finding...")
-                    node_ids_in_path = SchemaService._find_path_manual(node_ids[0], node_ids[1])
-                    if node_ids_in_path:
-                        logger.info(f"Manual path finding succeeded with {len(node_ids_in_path)} nodes")
-                
-                if node_ids_in_path:
-                    all_nodes.update(node_ids_in_path)
-                    all_paths.append(node_ids_in_path)
-                    
-                    # Get edges between consecutive nodes
-                    if len(node_ids_in_path) > 1:
-                        for i in range(len(node_ids_in_path) - 1):
-                            edge_id = SchemaService._find_edge_between_nodes(
-                                node_ids_in_path[i], 
-                                node_ids_in_path[i + 1]
-                            )
-                            if edge_id:
-                                all_edges.add(edge_id)
-                        
-                        logger.info(f"Found {len(all_edges)} edges in path")
-                else:
-                    logger.warning(f"No path found between {node_ids[0]} and {node_ids[1]}")
-            
-            # For 3+ nodes, find paths connecting consecutive pairs
-            else:
-                for i in range(len(node_ids) - 1):
-                    start_id = node_ids[i]
-                    end_id = node_ids[i + 1]
-                    
-                    segment_nodes = []
-                    
-                    # Try shortestPath in both directions
-                    query_forward = """
-                    MATCH (start {id: $start_id}), (end {id: $end_id})
-                    WITH shortestPath((start)-[*1..10]->(end)) as path
-                    WHERE path IS NOT NULL
-                    UNWIND nodes(path) as n
-                    RETURN collect(n.id) as node_ids
-                    """
-                    
-                    try:
-                        result = db.execute_query(query_forward, {
-                            'start_id': start_id,
-                            'end_id': end_id
-                        })
-                        
-                        if result.result_set and result.result_set[0][0]:
-                            segment_nodes = result.result_set[0][0]
-                    except Exception as e:
-                        logger.debug(f"Forward segment failed: {str(e)}")
-                    
-                    # Try backward if forward failed
-                    if not segment_nodes:
-                        query_backward = """
-                        MATCH (start {id: $start_id}), (end {id: $end_id})
-                        WITH shortestPath((start)<-[*1..10]-(end)) as path
-                        WHERE path IS NOT NULL
-                        UNWIND nodes(path) as n
-                        RETURN collect(n.id) as node_ids
-                        """
-                        
-                        try:
-                            result = db.execute_query(query_backward, {
-                                'start_id': start_id,
-                                'end_id': end_id
-                            })
+                    if result.result_set:
+                        logger.info(f"Found {len(result.result_set)} forward paths")
+                        for row in result.result_set:
+                            path_nodes = row[0]
                             
-                            if result.result_set and result.result_set[0][0]:
-                                segment_nodes = result.result_set[0][0]
-                        except Exception as e:
-                            logger.debug(f"Backward segment failed: {str(e)}")
-                    
-                    # Manual fallback
-                    if not segment_nodes:
-                        segment_nodes = SchemaService._find_path_manual(start_id, end_id)
-                    
-                    if segment_nodes:
-                        all_paths.append(segment_nodes)
-                        all_nodes.update(segment_nodes)
-                        
-                        # Get edges for this segment
-                        if len(segment_nodes) > 1:
-                            for j in range(len(segment_nodes) - 1):
-                                edge_id = SchemaService._find_edge_between_nodes(
-                                    segment_nodes[j],
-                                    segment_nodes[j + 1]
-                                )
-                                if edge_id:
-                                    all_edges.add(edge_id)
-                        
-                        logger.info(f"Found segment from {start_id} to {end_id} with {len(segment_nodes)} nodes")
-                    else:
-                        logger.warning(f"No path found between {start_id} and {end_id}")
-            
-            # If no paths found, just return the selected nodes
-            if not all_nodes:
-                all_nodes.update(node_ids)
-                logger.warning("No connecting paths found, returning selected nodes only")
-            
-            logger.info(f"Total path: {len(all_nodes)} nodes, {len(all_edges)} edges")
-            
-            return LineagePathResponse(
-                paths=all_paths,
-                highlighted_nodes=list(all_nodes),
-                highlighted_edges=list(all_edges)
-            )
-            
-        except Exception as e:
-            logger.error(f"Failed to find shortest path: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
-            # Return selected nodes even on error
-            return LineagePathResponse(
-                paths=[],
-                highlighted_nodes=node_ids,
-                highlighted_edges=[]
-            )
-    
-    @staticmethod
-    def _find_edge_between_nodes(node1_id: str, node2_id: str) -> Optional[str]:
-        """Find edge ID between two nodes (tries both directions)"""
-        # Try forward direction
-        edge_query = """
-        MATCH (n1 {id: $id1})-[r]->(n2 {id: $id2})
-        RETURN r.id as edge_id
-        LIMIT 1
-        """
-        try:
-            edge_result = db.execute_query(edge_query, {
-                'id1': node1_id,
-                'id2': node2_id
-            })
-            
-            if edge_result.result_set and edge_result.result_set[0][0]:
-                return edge_result.result_set[0][0]
-        except Exception as e:
-            logger.debug(f"Forward edge query failed: {str(e)}")
-        
-        # Try backward direction
-        edge_query_rev = """
-        MATCH (n1 {id: $id1})<-[r]-(n2 {id: $id2})
-        RETURN r.id as edge_id
-        LIMIT 1
-        """
-        try:
-            edge_result_rev = db.execute_query(edge_query_rev, {
-                'id1': node1_id,
-                'id2': node2_id
-            })
-            
-            if edge_result_rev.result_set and edge_result_rev.result_set[0][0]:
-                return edge_result_rev.result_set[0][0]
-        except Exception as e:
-            logger.debug(f"Backward edge query failed: {str(e)}")
-        
-        return None
-    
-    @staticmethod
-    def _find_path_manual(start_id: str, end_id: str, max_depth: int = 10) -> List[str]:
-        """Manual BFS-style path finding as fallback"""
-        try:
-            # Use variable-length pattern matching with MATCH
-            query = """
-            MATCH path = (start {id: $start_id})-[*1..10]->(end {id: $end_id})
-            WITH path, length(path) as pathLength
-            ORDER BY pathLength ASC
-            LIMIT 1
-            UNWIND nodes(path) as n
-            RETURN collect(n.id) as node_ids
-            """
-            
-            result = db.execute_query(query, {
-                'start_id': start_id,
-                'end_id': end_id
-            })
-            
-            if result.result_set and result.result_set[0][0]:
-                return result.result_set[0][0]
-            
-            # Try reverse direction
-            query_rev = """
-            MATCH path = (start {id: $start_id})<-[*1..10]-(end {id: $end_id})
-            WITH path, length(path) as pathLength
-            ORDER BY pathLength ASC
-            LIMIT 1
-            UNWIND nodes(path) as n
-            RETURN collect(n.id) as node_ids
-            """
-            
-            result_rev = db.execute_query(query_rev, {
-                'start_id': start_id,
-                'end_id': end_id
-            })
-            
-            if result_rev.result_set and result_rev.result_set[0][0]:
-                return result_rev.result_set[0][0]
-            
-        except Exception as e:
-            logger.error(f"Manual path finding failed: {str(e)}")
-        
-        return []
-        """
-        Find shortest path between multiple nodes using FalkorDB's shortest path algorithm.
-        For 2 nodes: direct shortest path
-        For 3+ nodes: finds path connecting all nodes
-        """
-        try:
-            if len(node_ids) < 2:
-                raise ValueError("At least 2 nodes required")
-            
-            all_paths = []
-            all_nodes = set()
-            all_edges = set()
-            
-            # For 2 nodes, find direct shortest path
-            if len(node_ids) == 2:
-                # FalkorDB requires directed paths, so try both directions
-                # Try forward direction first
-                query_forward = """
-                MATCH (start {id: $start_id}), (end {id: $end_id})
-                WITH shortestPath((start)-[*]->(end)) as path
-                WHERE path IS NOT NULL
-                UNWIND nodes(path) as n
-                RETURN collect(n.id) as node_ids
-                """
+                            if path_nodes:
+                                all_paths.append(path_nodes)
+                                all_nodes.update(path_nodes)
+                                
+                                # Find actual edge IDs between consecutive nodes
+                                for i in range(len(path_nodes) - 1):
+                                    edge_id = SchemaService._find_edge_between_nodes(
+                                        path_nodes[i], path_nodes[i + 1]
+                                    )
+                                    if edge_id:
+                                        all_edges.add(edge_id)
+                                
+                except Exception as e:
+                    logger.debug(f"Forward path query failed: {str(e)}")
                 
+                # Try backward direction too
                 query_backward = """
                 MATCH (start {id: $start_id}), (end {id: $end_id})
-                WITH shortestPath((start)<-[*]-(end)) as path
-                WHERE path IS NOT NULL
-                UNWIND nodes(path) as n
-                RETURN collect(n.id) as node_ids
-                """
+                MATCH p = (start)<-[*1..%d]-(end)
+                WITH nodes(p) as node_list, size(nodes(p)) as path_length
+                RETURN [n IN node_list | n.id] as node_ids, path_length
+                ORDER BY path_length
+                """ % max_depth
                 
-                node_ids_in_path = []
-                
-                # Try forward direction
                 try:
-                    result = db.execute_query(query_forward, {
-                        'start_id': node_ids[0],
-                        'end_id': node_ids[1]
+                    result = db.execute_query(query_backward, {
+                        'start_id': start_id,
+                        'end_id': end_id
                     })
                     
-                    if result.result_set and result.result_set[0][0]:
-                        node_ids_in_path = result.result_set[0][0]
-                        logger.info(f"Found forward path with {len(node_ids_in_path)} nodes")
-                except Exception as e:
-                    logger.debug(f"Forward path not found: {str(e)}")
-                
-                # If forward didn't work, try backward
-                if not node_ids_in_path:
-                    try:
-                        result = db.execute_query(query_backward, {
-                            'start_id': node_ids[0],
-                            'end_id': node_ids[1]
-                        })
-                        
-                        if result.result_set and result.result_set[0][0]:
-                            node_ids_in_path = result.result_set[0][0]
-                            logger.info(f"Found backward path with {len(node_ids_in_path)} nodes")
-                    except Exception as e:
-                        logger.debug(f"Backward path not found: {str(e)}")
-                
-                if node_ids_in_path:
-                    all_nodes.update(node_ids_in_path)
-                    all_paths.append(node_ids_in_path)
-                    
-                    # Get edges between consecutive nodes
-                    if len(node_ids_in_path) > 1:
-                        for i in range(len(node_ids_in_path) - 1):
-                            # Try both directions for edge
-                            edge_query = """
-                            MATCH (n1 {id: $id1})-[r]->(n2 {id: $id2})
-                            RETURN r.id as edge_id
-                            LIMIT 1
-                            """
-                            edge_result = db.execute_query(edge_query, {
-                                'id1': node_ids_in_path[i],
-                                'id2': node_ids_in_path[i + 1]
-                            })
+                    if result.result_set:
+                        logger.info(f"Found {len(result.result_set)} backward paths")
+                        for row in result.result_set:
+                            path_nodes = row[0]
                             
-                            if edge_result.result_set and edge_result.result_set[0][0]:
-                                edge_id = edge_result.result_set[0][0]
-                                all_edges.add(edge_id)
-                            else:
-                                # Try reverse direction
-                                edge_query_rev = """
-                                MATCH (n1 {id: $id1})<-[r]-(n2 {id: $id2})
-                                RETURN r.id as edge_id
-                                LIMIT 1
-                                """
-                                edge_result_rev = db.execute_query(edge_query_rev, {
-                                    'id1': node_ids_in_path[i],
-                                    'id2': node_ids_in_path[i + 1]
-                                })
+                            if path_nodes:
+                                all_paths.append(path_nodes)
+                                all_nodes.update(path_nodes)
                                 
-                                if edge_result_rev.result_set and edge_result_rev.result_set[0][0]:
-                                    edge_id = edge_result_rev.result_set[0][0]
-                                    all_edges.add(edge_id)
-                        
-                        logger.info(f"Found {len(all_edges)} edges in path")
-                else:
-                    logger.warning(f"No path found between {node_ids[0]} and {node_ids[1]}")
+                                # Find actual edge IDs between consecutive nodes
+                                for i in range(len(path_nodes) - 1):
+                                    edge_id = SchemaService._find_edge_between_nodes(
+                                        path_nodes[i], path_nodes[i + 1]
+                                    )
+                                    if edge_id:
+                                        all_edges.add(edge_id)
+                                
+                except Exception as e:
+                    logger.debug(f"Backward path query failed: {str(e)}")
+                
+                # Also try bidirectional (undirected) paths
+                query_undirected = """
+                MATCH (start {id: $start_id}), (end {id: $end_id})
+                MATCH p = (start)-[*1..%d]-(end)
+                WITH nodes(p) as node_list, size(nodes(p)) as path_length
+                RETURN [n IN node_list | n.id] as node_ids, path_length
+                ORDER BY path_length
+                """ % max_depth
+                
+                try:
+                    result = db.execute_query(query_undirected, {
+                        'start_id': start_id,
+                        'end_id': end_id
+                    })
+                    
+                    if result.result_set:
+                        logger.info(f"Found {len(result.result_set)} undirected paths")
+                        for row in result.result_set:
+                            path_nodes = row[0]
+                            
+                            if path_nodes:
+                                # Avoid duplicate paths
+                                if path_nodes not in all_paths:
+                                    all_paths.append(path_nodes)
+                                all_nodes.update(path_nodes)
+                                
+                                # Find actual edge IDs between consecutive nodes
+                                for i in range(len(path_nodes) - 1):
+                                    edge_id = SchemaService._find_edge_between_nodes(
+                                        path_nodes[i], path_nodes[i + 1]
+                                    )
+                                    if edge_id:
+                                        all_edges.add(edge_id)
+                                
+                except Exception as e:
+                    logger.debug(f"Undirected path query failed: {str(e)}")
+                
+                if not all_nodes:
+                    logger.warning(f"No paths found between {start_id} and {end_id}")
+                    all_nodes.update([start_id, end_id])
             
             # For 3+ nodes, find paths connecting consecutive pairs
             else:
@@ -945,97 +711,17 @@ class SchemaService:
                     start_id = node_ids[i]
                     end_id = node_ids[i + 1]
                     
-                    # Try both directions
-                    query_forward = """
-                    MATCH (start {id: $start_id}), (end {id: $end_id})
-                    WITH shortestPath((start)-[*]->(end)) as path
-                    WHERE path IS NOT NULL
-                    UNWIND nodes(path) as n
-                    RETURN collect(n.id) as node_ids
-                    """
+                    # Find all paths for this segment
+                    segment_response = SchemaService.get_all_paths_between_nodes(
+                        schema_id, [start_id, end_id], max_depth
+                    )
                     
-                    query_backward = """
-                    MATCH (start {id: $start_id}), (end {id: $end_id})
-                    WITH shortestPath((start)<-[*]-(end)) as path
-                    WHERE path IS NOT NULL
-                    UNWIND nodes(path) as n
-                    RETURN collect(n.id) as node_ids
-                    """
-                    
-                    segment_nodes = []
-                    
-                    # Try forward
-                    try:
-                        result = db.execute_query(query_forward, {
-                            'start_id': start_id,
-                            'end_id': end_id
-                        })
-                        
-                        if result.result_set and result.result_set[0][0]:
-                            segment_nodes = result.result_set[0][0]
-                    except Exception as e:
-                        logger.debug(f"Forward segment not found: {str(e)}")
-                    
-                    # Try backward if forward failed
-                    if not segment_nodes:
-                        try:
-                            result = db.execute_query(query_backward, {
-                                'start_id': start_id,
-                                'end_id': end_id
-                            })
-                            
-                            if result.result_set and result.result_set[0][0]:
-                                segment_nodes = result.result_set[0][0]
-                        except Exception as e:
-                            logger.debug(f"Backward segment not found: {str(e)}")
-                    
-                    if segment_nodes:
-                        all_paths.append(segment_nodes)
-                        all_nodes.update(segment_nodes)
-                        
-                        # Get edges for this segment
-                        if len(segment_nodes) > 1:
-                            for j in range(len(segment_nodes) - 1):
-                                # Try forward direction
-                                edge_query = """
-                                MATCH (n1 {id: $id1})-[r]->(n2 {id: $id2})
-                                RETURN r.id as edge_id
-                                LIMIT 1
-                                """
-                                edge_result = db.execute_query(edge_query, {
-                                    'id1': segment_nodes[j],
-                                    'id2': segment_nodes[j + 1]
-                                })
-                                
-                                if edge_result.result_set and edge_result.result_set[0][0]:
-                                    edge_id = edge_result.result_set[0][0]
-                                    all_edges.add(edge_id)
-                                else:
-                                    # Try backward direction
-                                    edge_query_rev = """
-                                    MATCH (n1 {id: $id1})<-[r]-(n2 {id: $id2})
-                                    RETURN r.id as edge_id
-                                    LIMIT 1
-                                    """
-                                    edge_result_rev = db.execute_query(edge_query_rev, {
-                                        'id1': segment_nodes[j],
-                                        'id2': segment_nodes[j + 1]
-                                    })
-                                    
-                                    if edge_result_rev.result_set and edge_result_rev.result_set[0][0]:
-                                        edge_id = edge_result_rev.result_set[0][0]
-                                        all_edges.add(edge_id)
-                        
-                        logger.info(f"Found path segment from {start_id} to {end_id} with {len(segment_nodes)} nodes")
-                    else:
-                        logger.warning(f"No path found between {start_id} and {end_id}")
+                    # Merge results
+                    all_paths.extend(segment_response.paths)
+                    all_nodes.update(segment_response.highlighted_nodes)
+                    all_edges.update(segment_response.highlighted_edges)
             
-            # If no paths found, just return the selected nodes
-            if not all_nodes:
-                all_nodes.update(node_ids)
-                logger.warning("No connecting paths found, returning selected nodes only")
-            
-            logger.info(f"Total path: {len(all_nodes)} nodes, {len(all_edges)} edges")
+            logger.info(f"Total: {len(all_paths)} paths, {len(all_nodes)} nodes, {len(all_edges)} edges")
             
             return LineagePathResponse(
                 paths=all_paths,
@@ -1044,10 +730,9 @@ class SchemaService:
             )
             
         except Exception as e:
-            logger.error(f"Failed to find shortest path: {str(e)}")
-            import traceback
-            logger.error(traceback.format_exc())
-            # Return selected nodes even on error
+            logger.error(f"Failed to get all paths: {str(e)}")
+            logger.error(f"Node IDs: {node_ids}")
+            # Return empty response instead of raising
             return LineagePathResponse(
                 paths=[],
                 highlighted_nodes=node_ids,

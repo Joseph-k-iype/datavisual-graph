@@ -1,6 +1,7 @@
 # backend/app/routers/schema.py
 """
 Schema Router - API endpoints for schema management
+COMPLETE IMPLEMENTATION with ALL endpoints including all-paths
 """
 
 from fastapi import APIRouter, HTTPException, status, UploadFile, File, Form
@@ -143,14 +144,16 @@ async def get_lineage_path(schema_id: str, request: LineagePathRequest):
 @router.post("/{schema_id}/shortest-path", response_model=LineagePathResponse)
 async def get_shortest_path(
     schema_id: str,
-    node_ids: List[str]
+    request: dict
 ):
     """
-    Find shortest path between multiple nodes.
+    Find shortest path between multiple nodes (LEGACY - delegates to all-paths).
     If 2 nodes provided: finds shortest path between them.
     If 3+ nodes provided: finds path connecting all nodes.
     """
     try:
+        node_ids = request.get('node_ids', [])
+        
         if len(node_ids) < 2:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -166,6 +169,55 @@ async def get_shortest_path(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get shortest path: {str(e)}"
+        )
+
+
+@router.post("/{schema_id}/all-paths", response_model=LineagePathResponse)
+async def get_all_paths(
+    schema_id: str,
+    request: dict
+):
+    """
+    Find ALL paths between multiple nodes (not just shortest paths).
+    This includes paths through different intermediate nodes.
+    
+    Request body:
+    {
+        "node_ids": ["node1", "node2"],  // List of node IDs
+        "max_depth": 10  // Optional, default 10
+    }
+    
+    For 2 nodes: finds ALL paths between them
+    For 3+ nodes: finds ALL paths connecting consecutive pairs
+    """
+    try:
+        node_ids = request.get('node_ids', [])
+        max_depth = request.get('max_depth', 10)
+        
+        if len(node_ids) < 2:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="At least 2 nodes required for path finding"
+            )
+        
+        if max_depth < 1 or max_depth > 20:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="max_depth must be between 1 and 20"
+            )
+        
+        logger.info(f"Finding all paths between {len(node_ids)} nodes with max_depth={max_depth}")
+        path = SchemaService.get_all_paths_between_nodes(schema_id, node_ids, max_depth)
+        logger.info(f"Found {len(path.paths)} paths, {len(path.highlighted_nodes)} nodes, {len(path.highlighted_edges)} edges")
+        return path
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get all paths: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get all paths: {str(e)}"
         )
 
 
