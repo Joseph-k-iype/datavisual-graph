@@ -1,0 +1,6 @@
+customer_id,name,email,country,,,
+CUST001,Alice Johnson,alice.johnson@email.com,USA,,,
+CUST002,Bob Smith,bob.smith@email.com,UK,,,
+CUST003,Carol Williams,carol.williams@email.com,Canada,,,
+CUST004,David Brown,david.brown@email.com,USA,,,
+CUST005,Emma Davis,emma.davis@email.com,Australia,,,

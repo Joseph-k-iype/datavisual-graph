@@ -1,14 +1,16 @@
+// frontend/src/services/api.ts - ENHANCED API SERVICE
+
 import axios, { AxiosInstance } from 'axios';
 import {
-  GraphData,
-  GraphNode,
-  LineagePath,
-  NodeCreate,
-  NodeUpdate,
-  NodeType,
-  RelationshipCreate,
-  LineageQuery,
-  Stats,
+  SchemaDefinition,
+  SchemaCreateRequest,
+  SchemaListItem,
+  SchemaStats,
+  LineageGraphResponse,
+  LineagePathRequest,
+  LineagePathResponse,
+  DataLoadResponse,
+  SuccessResponse,
 } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -26,78 +28,168 @@ class ApiService {
     });
   }
 
-  // Lineage endpoints
-  async getFullLineage(): Promise<GraphData> {
-    const response = await this.client.get<GraphData>('/lineage/full');
+  // ============================================
+  // SCHEMA ENDPOINTS
+  // ============================================
+
+  async createSchema(request: SchemaCreateRequest): Promise<SchemaDefinition> {
+    const response = await this.client.post<SchemaDefinition>('/schemas/', request);
     return response.data;
   }
 
-  async getNodeLineage(query: LineageQuery): Promise<GraphData> {
-    const response = await this.client.post<GraphData>('/lineage/node', query);
+  async listSchemas(): Promise<SchemaListItem[]> {
+    const response = await this.client.get<SchemaListItem[]>('/schemas/');
     return response.data;
   }
 
-  async findPaths(
-    sourceId: string,
-    targetId: string,
-    maxDepth: number = 5
-  ): Promise<LineagePath> {
-    const response = await this.client.get<LineagePath>('/lineage/paths', {
-      params: { source_id: sourceId, target_id: targetId, max_depth: maxDepth },
-    });
+  async getSchema(schemaId: string): Promise<SchemaDefinition> {
+    const response = await this.client.get<SchemaDefinition>(`/schemas/${schemaId}`);
     return response.data;
   }
 
-  async getHierarchicalLineage(): Promise<{ hierarchy: any[] }> {
-    const response = await this.client.get('/lineage/hierarchical');
+  async deleteSchema(schemaId: string): Promise<SuccessResponse> {
+    const response = await this.client.delete<SuccessResponse>(`/schemas/${schemaId}`);
     return response.data;
   }
 
-  // Node endpoints
-  async createNode(nodeData: NodeCreate): Promise<GraphNode> {
-    const response = await this.client.post<GraphNode>('/nodes/', nodeData);
+  async getSchemaStats(schemaId: string): Promise<SchemaStats> {
+    const response = await this.client.get<SchemaStats>(`/schemas/${schemaId}/stats`);
     return response.data;
   }
 
-  async getNode(nodeId: string, nodeType: NodeType): Promise<GraphNode> {
-    const response = await this.client.get<GraphNode>(`/nodes/${nodeType}/${nodeId}`);
-    return response.data;
-  }
+  // ============================================
+  // LINEAGE ENDPOINTS
+  // ============================================
 
-  async updateNode(
-    nodeId: string,
-    nodeType: NodeType,
-    updateData: NodeUpdate
-  ): Promise<GraphNode> {
-    const response = await this.client.put<GraphNode>(
-      `/nodes/${nodeType}/${nodeId}`,
-      updateData
+  async getLineageGraph(
+    schemaId: string,
+    expandedClasses?: string[]
+  ): Promise<LineageGraphResponse> {
+    const params = expandedClasses && expandedClasses.length > 0
+      ? { expanded_classes: expandedClasses.join(',') }
+      : {};
+    
+    const response = await this.client.get<LineageGraphResponse>(
+      `/schemas/${schemaId}/lineage`,
+      { params }
     );
     return response.data;
   }
 
-  async deleteNode(nodeId: string, nodeType: NodeType): Promise<void> {
-    await this.client.delete(`/nodes/${nodeType}/${nodeId}`);
-  }
-
-  async getAllNodes(nodeType?: NodeType): Promise<GraphNode[]> {
-    const params = nodeType ? { node_type: nodeType } : {};
-    const response = await this.client.get<GraphNode[]>('/nodes/', { params });
+  async getLineagePath(
+    schemaId: string,
+    request: LineagePathRequest
+  ): Promise<LineagePathResponse> {
+    const response = await this.client.post<LineagePathResponse>(
+      `/schemas/${schemaId}/lineage/path`,
+      request
+    );
     return response.data;
   }
 
-  async getStats(): Promise<Stats> {
-    const response = await this.client.get<Stats>('/nodes/stats/summary');
+  async getShortestPath(
+    schemaId: string,
+    nodeIds: string[]
+  ): Promise<LineagePathResponse> {
+    const response = await this.client.post<LineagePathResponse>(
+      `/schemas/${schemaId}/shortest-path`,
+      nodeIds
+    );
     return response.data;
   }
 
-  // Relationship endpoints
-  async createRelationship(relData: RelationshipCreate): Promise<any> {
-    const response = await this.client.post('/relationships/', relData);
+  // ============================================
+  // DATA LOADING ENDPOINTS
+  // ============================================
+
+  async loadData(
+    schemaId: string,
+    file: File,
+    mapping: {
+      format: string;
+      class_mappings: any[];
+      relationship_mappings?: any[];
+    }
+  ): Promise<DataLoadResponse> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('mapping', JSON.stringify(mapping));
+
+    const response = await this.client.post<DataLoadResponse>(
+      `/schemas/${schemaId}/load-data`,
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      }
+    );
     return response.data;
   }
 
-  // Health check
+  // ============================================
+  // FILE PREVIEW ENDPOINTS
+  // ============================================
+
+  async previewFile(file: File): Promise<{
+    columns: string[];
+    preview: any[];
+    sheets?: string[];
+  }> {
+    // Client-side file preview
+    const text = await file.text();
+    
+    if (file.name.endsWith('.csv')) {
+      const lines = text.split('\n').filter(l => l.trim());
+      if (lines.length === 0) {
+        return { columns: [], preview: [] };
+      }
+      
+      const headers = lines[0].split(',').map(h => h.trim());
+      const preview = lines.slice(1, 11).map(line => {
+        const values = line.split(',');
+        const obj: Record<string, any> = {};
+        headers.forEach((header, idx) => {
+          obj[header] = values[idx]?.trim() || '';
+        });
+        return obj;
+      });
+      
+      return { columns: headers, preview };
+    } else if (file.name.endsWith('.json')) {
+      const data = JSON.parse(text);
+      let preview: any[] = [];
+      let columns: string[] = [];
+      
+      if (Array.isArray(data)) {
+        preview = data.slice(0, 10);
+        if (preview.length > 0) {
+          columns = Object.keys(preview[0]);
+        }
+      } else if (typeof data === 'object') {
+        // Find the first array in the object
+        for (const key in data) {
+          if (Array.isArray(data[key])) {
+            preview = data[key].slice(0, 10);
+            if (preview.length > 0) {
+              columns = Object.keys(preview[0]);
+            }
+            break;
+          }
+        }
+      }
+      
+      return { columns, preview };
+    }
+    
+    // For Excel and XML, we'd need a backend endpoint or library
+    return { columns: [], preview: [] };
+  }
+
+  // ============================================
+  // HEALTH CHECK
+  // ============================================
+
   async healthCheck(): Promise<{ status: string; database: string }> {
     const response = await this.client.get('/health', {
       baseURL: API_BASE_URL,

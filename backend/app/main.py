@@ -1,7 +1,7 @@
-# backend/app/main.py - COMPLETE PRODUCTION-READY VERSION
+# backend/app/main.py - UPDATED WITH SCHEMA SUPPORT
 """
-Data Lineage API - Main Application
-A FastAPI application for managing data lineage graphs with FalkorDB
+Data Lineage API - Main Application (Enhanced)
+A FastAPI application for managing data lineage with schema definition
 """
 
 from fastapi import FastAPI, Request, status
@@ -9,16 +9,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from contextlib import asynccontextmanager
-from .routers import nodes, lineage, stats, groups
+from .routers import nodes, lineage, stats, groups, schema
 from .database import db
 import logging
 import sys
 import traceback
 
-# ============================================
-# LOGGING CONFIGURATION
-# ============================================
-
+# Logging configuration
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -31,19 +28,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ============================================
-# LIFESPAN EVENT HANDLER
-# ============================================
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Modern lifespan event handler for startup and shutdown.
-    Manages database connections and application lifecycle.
-    """
+    """Lifespan event handler for startup and shutdown"""
     # STARTUP
     logger.info("=" * 60)
-    logger.info("🚀 Starting Data Lineage API")
+    logger.info("🚀 Starting Data Lineage API (Enhanced)")
     logger.info("=" * 60)
     
     try:
@@ -74,7 +64,7 @@ async def lifespan(app: FastAPI):
         logger.error(traceback.format_exc())
         raise
     
-    yield  # Application runs here
+    yield
     
     # SHUTDOWN
     logger.info("=" * 60)
@@ -87,40 +77,32 @@ async def lifespan(app: FastAPI):
         logger.info("✅ Database connection closed")
         logger.info("✅ Application shutdown complete")
         logger.info("=" * 60)
-        
     except Exception as e:
         logger.error(f"❌ Error during shutdown: {str(e)}")
         logger.error(traceback.format_exc())
 
 
-# ============================================
-# FASTAPI APPLICATION
-# ============================================
-
 app = FastAPI(
-    title="Data Lineage API",
+    title="Data Lineage API (Enhanced)",
     description="""
-    ## Data Lineage Management System
+    ## Enhanced Data Lineage Management System
     
-    A comprehensive API for managing data lineage graphs using FalkorDB.
+    A comprehensive API for managing data lineage with schema definition and hierarchical visualization.
     
     ### Features:
-    * **Nodes**: Create, read, update, and delete nodes (Countries, Databases, Attributes)
-    * **Lineage**: Query and visualize data lineage paths
-    * **Stats**: Get graph statistics and insights
-    * **Groups**: Organize nodes into logical groups
+    * **Schema Definition**: Define classes, relationships, and cardinality
+    * **Data Loading**: Load data from CSV, Excel, JSON, XML
+    * **Hierarchical Visualization**: Schema-level and data-level views
+    * **Lineage Tracking**: Track data flow and relationships
+    * **Advanced Analytics**: Statistics and insights
     
-    ### Node Types:
-    * **Country**: Geographic data locations
-    * **Database**: Data storage systems
-    * **Attribute**: Data fields and columns
-    
-    ### Powered By:
-    * FastAPI - Modern web framework
-    * FalkorDB - Graph database
-    * Python 3.8+
+    ### New Capabilities:
+    * **Schema Builder**: Visual schema definition with drag-and-drop
+    * **Data Mapper**: Intelligent mapping of data to schema
+    * **Collapsible Views**: Expand/collapse schema classes
+    * **Path Highlighting**: Trace lineage from any data point
     """,
-    version="1.0.0",
+    version="2.0.0",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -135,17 +117,13 @@ app = FastAPI(
 )
 
 
-# ============================================
-# MIDDLEWARE CONFIGURATION
-# ============================================
-
 # CORS Configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173",      # Vite dev server (default)
-        "http://localhost:3000",      # Alternative frontend port
-        "http://localhost:3001",      # Your current frontend port
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://localhost:3001",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3001",
@@ -172,65 +150,57 @@ async def log_requests(request: Request, call_next):
         raise
 
 
-# ============================================
-# EXCEPTION HANDLERS
-# ============================================
-
+# Exception Handlers
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """Handle validation errors with detailed messages"""
-    logger.error(f"Validation error on {request.url.path}: {exc.errors()}")
+    """Handle validation errors"""
+    logger.error(f"Validation error: {exc}")
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
             "detail": exc.errors(),
-            "body": exc.body,
-            "message": "Request validation failed"
-        },
+            "body": exc.body
+        }
     )
 
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Handle all unhandled exceptions"""
-    logger.error(f"Unhandled exception on {request.url.path}: {str(exc)}")
+    """Handle all other exceptions"""
+    logger.error(f"Unhandled exception: {str(exc)}")
     logger.error(traceback.format_exc())
-    
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
-            "message": "Internal server error",
-            "detail": str(exc) if app.debug else "An error occurred processing your request",
-            "path": str(request.url.path)
-        },
+            "detail": "Internal server error",
+            "error": str(exc)
+        }
     )
 
 
-# ============================================
-# ROUTER REGISTRATION
-# ============================================
-
-app.include_router(nodes.router, prefix="/api/v1", tags=["Nodes"])
-app.include_router(lineage.router, prefix="/api/v1", tags=["Lineage"])
-app.include_router(stats.router, prefix="/api/v1", tags=["Statistics"])
-app.include_router(groups.router, prefix="/api/v1", tags=["Groups"])
-
-logger.info("✅ All routers registered")
+# Include Routers
+app.include_router(schema.router, prefix="/api/v1")  # New schema router
+app.include_router(nodes.router, prefix="/api/v1")
+app.include_router(lineage.router, prefix="/api/v1")
+app.include_router(stats.router, prefix="/api/v1")
+app.include_router(groups.router, prefix="/api/v1")
 
 
-# ============================================
-# ROOT ENDPOINTS
-# ============================================
-
+# Root Endpoints
 @app.get("/", tags=["Root"])
 async def root():
-    """
-    Root endpoint - API information and available endpoints
-    """
+    """Root endpoint - API information"""
     return {
-        "message": "Data Lineage API",
-        "version": "1.0.0",
+        "message": "Data Lineage API (Enhanced)",
+        "version": "2.0.0",
         "status": "running",
+        "features": [
+            "Schema Definition",
+            "Data Loading (CSV, Excel, JSON, XML)",
+            "Hierarchical Visualization",
+            "Lineage Tracking",
+            "Advanced Analytics"
+        ],
         "documentation": {
             "swagger": "/docs",
             "redoc": "/redoc",
@@ -238,42 +208,36 @@ async def root():
         },
         "endpoints": {
             "health": "/health",
+            "schemas": "/api/v1/schemas",
             "nodes": "/api/v1/nodes",
             "lineage": "/api/v1/lineage",
             "stats": "/api/v1/stats",
             "groups": "/api/v1/groups"
         },
         "database": "FalkorDB",
-        "frontend": "http://localhost:5173"
+        "frontend": "http://localhost:3001"
     }
 
 
 @app.get("/health", tags=["Health"])
 async def health_check():
-    """
-    Health check endpoint - Verify API and database status
-    """
+    """Health check endpoint"""
     health_status = {
         "status": "healthy",
         "api": "operational",
         "database": "unknown",
-        "version": "1.0.0"
+        "version": "2.0.0"
     }
     
     try:
-        # Test database connection
         test_query = "RETURN 1"
         result = db.execute_query(test_query)
         
         if result:
             health_status["database"] = "connected"
             
-            # Get database stats
             try:
-                stats_query = """
-                MATCH (n)
-                RETURN count(n) as node_count
-                """
+                stats_query = "MATCH (n) RETURN count(n) as node_count"
                 stats_result = db.execute_query(stats_query)
                 
                 if stats_result.result_set:
@@ -281,7 +245,6 @@ async def health_check():
                     health_status["nodes"] = node_count
             except:
                 pass
-                
     except Exception as e:
         health_status["status"] = "unhealthy"
         health_status["database"] = "disconnected"
@@ -295,22 +258,23 @@ async def health_check():
 async def version():
     """Get API version information"""
     return {
-        "version": "1.0.0",
-        "api": "Data Lineage API",
+        "version": "2.0.0",
+        "api": "Data Lineage API (Enhanced)",
         "python": sys.version,
-        "fastapi": "0.100.0+"
+        "fastapi": "0.100.0+",
+        "features": [
+            "Schema Definition",
+            "Multi-format Data Loading",
+            "Hierarchical Visualization",
+            "Lineage Path Tracing"
+        ]
     }
 
 
-# ============================================
-# DEVELOPMENT SERVER (UVICORN)
-# ============================================
-
 if __name__ == "__main__":
     import uvicorn
-    
-    # Determine if running in production or development
     import os
+    
     ENV = os.getenv("ENVIRONMENT", "development")
     
     config = {
@@ -321,7 +285,6 @@ if __name__ == "__main__":
     }
     
     if ENV == "development":
-        # Development settings
         config.update({
             "reload": True,
             "reload_dirs": ["app"],
@@ -336,7 +299,6 @@ if __name__ == "__main__":
         logger.info("🐛 Debug mode: ENABLED")
         logger.info("=" * 60)
     else:
-        # Production settings
         config.update({
             "workers": 4,
             "log_level": "info",
@@ -348,5 +310,4 @@ if __name__ == "__main__":
         logger.info("👷 Workers: 4")
         logger.info("=" * 60)
     
-    # Start server
     uvicorn.run(**config)

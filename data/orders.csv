@@ -1,0 +1,8 @@
+order_id,customer_id,order_date,total_amount,status,,
+ORD001,CUST001,2024-01-15,1379.97,Completed,,
+ORD002,CUST001,2024-01-20,229.98,Completed,,
+ORD003,CUST002,2024-01-16,1749.97,Shipped,,
+ORD004,CUST003,2024-01-17,84.97,Completed,,
+ORD005,CUST004,2024-01-18,549.98,Processing,,
+ORD006,CUST002,2024-01-21,399.99,Completed,,
+ORD007,CUST005,2024-01-19,1299.99,Shipped,,
