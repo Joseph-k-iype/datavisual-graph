@@ -1,4 +1,4 @@
-// frontend/src/components/EnhancedLineageGraph.tsx - FIXED RENDERING ISSUE
+// frontend/src/components/EnhancedLineageGraph.tsx - COMPLETELY FIXED VERSION
 
 import React, { useCallback, useMemo, useEffect } from 'react';
 import ReactFlow, {
@@ -53,40 +53,51 @@ const EnhancedLineageGraphInner: React.FC<EnhancedLineageGraphProps> = ({
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const { fitView } = useReactFlow();
 
+  console.log('📥 EnhancedLineageGraph props:', {
+    lineageNodes: lineageNodes?.length || 0,
+    lineageEdges: lineageEdges?.length || 0,
+  });
+
+  // Convert and update nodes/edges whenever lineage data changes
   useEffect(() => {
-    console.log('=== GRAPH UPDATE ===');
-    console.log('Lineage Nodes:', lineageNodes.length);
-    console.log('Lineage Edges:', lineageEdges.length);
-    console.log('Highlighted Nodes:', highlightedNodes);
-    console.log('Highlighted Edges:', highlightedEdges);
-    
-    if (lineageNodes.length === 0) {
-      console.warn('⚠️ No nodes to render!');
+    if (!lineageNodes || lineageNodes.length === 0) {
+      console.log('⚠️ No lineage nodes');
       setNodes([]);
       setEdges([]);
       return;
     }
 
+    console.log('🔄 Converting lineage data to flow format');
     const flowNodes = convertToFlowNodes(lineageNodes, highlightedNodes, selectedNodeIds);
-    const flowEdges = convertToFlowEdges(lineageEdges, highlightedEdges);
+    const flowEdges = convertToFlowEdges(lineageEdges || [], highlightedEdges);
     
-    console.log('✅ Converted Flow Nodes:', flowNodes.length);
-    console.log('✅ Converted Flow Edges:', flowEdges.length);
-    console.log('Node positions:', flowNodes.map(n => ({ id: n.id, pos: n.position })));
+    console.log('✅ Converted:', { nodes: flowNodes.length, edges: flowEdges.length });
     
     setNodes(flowNodes);
     setEdges(flowEdges);
-    
-    // Fit view after nodes are set
-    setTimeout(() => {
-      fitView({ padding: 0.2, duration: 200 });
-    }, 50);
+
+    // FIT VIEW AFTER A DELAY TO ENSURE REACT FLOW IS READY
+    if (flowNodes.length > 0) {
+      console.log('🎯 Scheduling fitView');
+      setTimeout(() => {
+        try {
+          fitView({ 
+            padding: 0.2, 
+            duration: 300,
+            maxZoom: 1.5,
+            minZoom: 0.5
+          });
+          console.log('✅ fitView completed');
+        } catch (err) {
+          console.error('❌ fitView failed:', err);
+        }
+      }, 150);
+    }
   }, [lineageNodes, lineageEdges, highlightedNodes, highlightedEdges, selectedNodeIds, setNodes, setEdges, fitView]);
 
   const handleNodeClick: NodeMouseHandler = useCallback(
     (event, node) => {
       event.stopPropagation();
-      console.log('Node clicked:', node.id);
       onNodeClick?.(node);
     },
     [onNodeClick]
@@ -94,7 +105,6 @@ const EnhancedLineageGraphInner: React.FC<EnhancedLineageGraphProps> = ({
 
   const handleToggleExpand = useCallback(
     (classId: string) => {
-      console.log('Toggling expand for class:', classId);
       onToggleExpand?.(classId);
     },
     [onToggleExpand]
@@ -110,8 +120,7 @@ const EnhancedLineageGraphInner: React.FC<EnhancedLineageGraphProps> = ({
     [handleToggleExpand]
   );
 
-  // Show message if no nodes
-  if (lineageNodes.length === 0) {
+  if (!lineageNodes || lineageNodes.length === 0) {
     return (
       <div className="w-full h-full flex items-center justify-center bg-gray-50">
         <div className="text-center">
@@ -125,8 +134,10 @@ const EnhancedLineageGraphInner: React.FC<EnhancedLineageGraphProps> = ({
     );
   }
 
+  console.log('🎨 Rendering React Flow with:', nodes.length, 'nodes', edges.length, 'edges');
+
   return (
-    <div className="w-full h-full">
+    <div className="w-full h-full" style={{ minHeight: '100%' }}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -134,16 +145,17 @@ const EnhancedLineageGraphInner: React.FC<EnhancedLineageGraphProps> = ({
         onEdgesChange={onEdgesChange}
         onNodeClick={handleNodeClick}
         nodeTypes={nodeTypes}
-        fitView
-        fitViewOptions={{ padding: 0.2, duration: 200, maxZoom: 1.5 }}
+        fitViewOptions={{ padding: 0.2, maxZoom: 1.5, minZoom: 0.5 }}
         minZoom={0.1}
-        maxZoom={2}
+        maxZoom={4}
+        defaultViewport={{ x: 0, y: 0, zoom: 1 }}
         defaultEdgeOptions={{
           type: 'smoothstep',
           animated: false,
         }}
         connectionLineType={ConnectionLineType.SmoothStep}
         attributionPosition="bottom-left"
+        proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#e5e7eb" />
         <Controls />
@@ -172,7 +184,6 @@ const EnhancedLineageGraphInner: React.FC<EnhancedLineageGraphProps> = ({
           </div>
         </Panel>
 
-        {/* Node Count Panel */}
         <Panel position="top-right" className="bg-white border border-gray-200 rounded-lg shadow-md px-3 py-2">
           <div className="text-xs text-gray-600">
             {nodes.length} node{nodes.length !== 1 ? 's' : ''} · {edges.length} edge{edges.length !== 1 ? 's' : ''}
@@ -183,14 +194,13 @@ const EnhancedLineageGraphInner: React.FC<EnhancedLineageGraphProps> = ({
   );
 };
 
-const LegendItem: React.FC<{ color: string; label: string }> = ({ color, label }) => (
+const LegendItem: React.FC<{ color: string; label: string }> = React.memo(({ color, label }) => (
   <div className="flex items-center gap-2">
     <div className="w-3 h-3 rounded" style={{ backgroundColor: color }} />
     <span>{label}</span>
   </div>
-);
+));
 
-// Convert lineage nodes to React Flow nodes with PROPER POSITIONING
 function convertToFlowNodes(
   lineageNodes: LineageNode[],
   highlightedNodes: string[],
@@ -199,32 +209,32 @@ function convertToFlowNodes(
   const schemaClasses = lineageNodes.filter(n => n.type === 'schema_class');
   const dataInstances = lineageNodes.filter(n => n.type === 'data_instance');
   
-  console.log('Converting nodes:', {
-    schemaClasses: schemaClasses.length,
-    dataInstances: dataInstances.length
-  });
+  console.log('📦 Node types:', { schemaClasses: schemaClasses.length, dataInstances: dataInstances.length });
 
   const nodes: FlowNode<FlowNodeData>[] = [];
   
-  // FIXED: Better positioning for schema classes
-  const classSpacing = 400; // Increased spacing
-  const rowHeight = 250;
+  // BETTER SPACING FOR VISIBILITY
+  const classSpacing = 350;
+  const rowHeight = 300;
   
   schemaClasses.forEach((node, index) => {
     const isSelected = selectedNodeIds.includes(node.id);
     const isHighlighted = highlightedNodes.includes(node.id);
     
-    // Calculate position in a grid layout
     const col = index % 3;
     const row = Math.floor(index / 3);
+    
+    const position = { 
+      x: col * classSpacing, 
+      y: row * rowHeight 
+    };
+    
+    console.log(`  Creating node: ${node.name} at (${position.x}, ${position.y})`);
     
     nodes.push({
       id: node.id,
       type: 'schemaClass',
-      position: { 
-        x: col * classSpacing, 
-        y: row * rowHeight 
-      },
+      position,
       data: {
         label: node.name,
         type: node.type,
@@ -232,7 +242,7 @@ function convertToFlowNodes(
         schema_id: node.schema_id,
         class_id: node.class_id,
         parent_id: node.parent_id,
-        collapsed: node.data?.collapsed !== false, // Default to collapsed
+        collapsed: node.data?.collapsed !== false,
         instance_count: node.data?.instance_count || 0,
         attributes: node.data?.attributes || [],
         data: node.data || {},
@@ -244,7 +254,6 @@ function convertToFlowNodes(
     });
   });
   
-  // FIXED: Better positioning for data instances
   const instancesByParent: Record<string, LineageNode[]> = {};
   dataInstances.forEach(instance => {
     const parentId = instance.parent_id || 'unknown';
@@ -263,7 +272,6 @@ function convertToFlowNodes(
       const isSelected = selectedNodeIds.includes(instance.id);
       const isHighlighted = highlightedNodes.includes(instance.id);
       
-      // Position instances below parent in a grid
       const col = index % 3;
       const row = Math.floor(index / 3);
       
@@ -272,7 +280,7 @@ function convertToFlowNodes(
         type: 'dataInstance',
         position: {
           x: parentX + (col - 1) * 220,
-          y: parentY + 200 + row * 120,
+          y: parentY + 180 + row * 100,
         },
         data: {
           label: instance.name,
@@ -295,11 +303,12 @@ function convertToFlowNodes(
   return nodes;
 }
 
-// Convert lineage edges to React Flow edges
 function convertToFlowEdges(
   lineageEdges: LineageEdge[],
   highlightedEdges: string[]
 ): Edge[] {
+  console.log('🔗 Converting', lineageEdges.length, 'edges');
+  
   return lineageEdges.map((edge) => {
     const isHighlighted = highlightedEdges.includes(edge.id);
     
@@ -329,19 +338,18 @@ function convertToFlowEdges(
   });
 }
 
-// Schema Class Node Component
 interface SchemaClassNodeProps {
   data: FlowNodeData;
   onToggleExpand: (classId: string) => void;
 }
 
-const SchemaClassNode: React.FC<SchemaClassNodeProps> = ({ data, onToggleExpand }) => {
-  const handleToggle = (e: React.MouseEvent) => {
+const SchemaClassNode: React.FC<SchemaClassNodeProps> = React.memo(({ data, onToggleExpand }) => {
+  const handleToggle = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     if (data.class_id) {
       onToggleExpand(data.class_id);
     }
-  };
+  }, [data.class_id, onToggleExpand]);
 
   const hasInstances = data.instance_count !== undefined && data.instance_count > 0;
 
@@ -351,99 +359,78 @@ const SchemaClassNode: React.FC<SchemaClassNodeProps> = ({ data, onToggleExpand 
         data.isSelected
           ? 'border-blue-600 shadow-blue-300 ring-4 ring-blue-200'
           : data.isHighlighted
-          ? 'border-yellow-500 shadow-yellow-300 ring-4 ring-yellow-200'
+          ? 'border-yellow-500 shadow-yellow-300'
           : 'border-gray-300 hover:border-gray-400'
       }`}
       style={{ cursor: 'pointer' }}
     >
-      <Handle type="target" position={Position.Top} id="top" style={{ background: '#374151', width: 16, height: 16, border: '2px solid white' }} />
-      <Handle type="source" position={Position.Bottom} id="bottom" style={{ background: '#374151', width: 16, height: 16, border: '2px solid white' }} />
-      <Handle type="target" position={Position.Left} id="left" style={{ background: '#374151', width: 16, height: 16, border: '2px solid white' }} />
-      <Handle type="source" position={Position.Right} id="right" style={{ background: '#374151', width: 16, height: 16, border: '2px solid white' }} />
-
-      <div className="flex items-center justify-between mb-2">
+      <Handle type="target" position={Position.Top} id="top" className="!bg-gray-400" />
+      <Handle type="source" position={Position.Bottom} id="bottom" className="!bg-gray-400" />
+      <Handle type="target" position={Position.Left} id="left" className="!bg-gray-400" />
+      <Handle type="source" position={Position.Right} id="right" className="!bg-gray-400" />
+      
+      <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded flex items-center justify-center" style={{ backgroundColor: data.color || '#6B7280' }}>
-            <Box size={18} className="text-white" />
+          <div
+            className="w-8 h-8 rounded-lg flex items-center justify-center"
+            style={{ backgroundColor: `${data.color}20`, color: data.color }}
+          >
+            <Box size={16} />
           </div>
-          <div className="font-semibold text-sm text-black">{data.label}</div>
+          <div>
+            <div className="font-semibold text-gray-900">{data.label}</div>
+            <div className="text-xs text-gray-500">Schema Class</div>
+          </div>
         </div>
         
         {hasInstances && (
-          <button 
-            onClick={handleToggle} 
-            className="p-1.5 hover:bg-gray-100 rounded transition-colors" 
-            title={data.collapsed ? 'Expand to see data' : 'Collapse'}
+          <button
+            onClick={handleToggle}
+            className="text-gray-500 hover:text-gray-700 transition-colors p-1"
+            title={data.collapsed ? 'Expand instances' : 'Collapse instances'}
           >
             {data.collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
           </button>
         )}
       </div>
-
-      {data.attributes && data.attributes.length > 0 && (
-        <div className="text-xs text-gray-600 space-y-1 mt-2">
-          {data.attributes.slice(0, 3).map((attr, i) => (
-            <div key={i} className="truncate">• {attr}</div>
-          ))}
-          {data.attributes.length > 3 && (
-            <div className="text-gray-400">+{data.attributes.length - 3} more</div>
-          )}
-        </div>
-      )}
       
       {hasInstances && (
-        <div className="mt-2 pt-2 border-t border-gray-200">
-          <div className="text-xs text-gray-500">
-            {data.instance_count} instance{data.instance_count !== 1 ? 's' : ''}
-            {data.collapsed && <span className="ml-1 text-blue-600">(click to expand)</span>}
-          </div>
+        <div className="mt-2 text-xs text-gray-600">
+          {data.instance_count} instance{data.instance_count !== 1 ? 's' : ''}
         </div>
       )}
     </div>
   );
-};
+});
 
-// Data Instance Node Component
-interface DataInstanceNodeProps {
-  data: FlowNodeData;
-}
-
-const DataInstanceNode: React.FC<DataInstanceNodeProps> = ({ data }) => {
+const DataInstanceNode: React.FC<{ data: FlowNodeData }> = React.memo(({ data }) => {
   return (
     <div
       className={`px-4 py-3 rounded-lg border-2 bg-white shadow-md transition-all min-w-[180px] ${
         data.isSelected
-          ? 'border-blue-600 shadow-blue-200 ring-4 ring-blue-200'
+          ? 'border-blue-600 shadow-blue-300 ring-4 ring-blue-200'
           : data.isHighlighted
-          ? 'border-yellow-500 shadow-yellow-200 ring-4 ring-yellow-200'
+          ? 'border-yellow-500 shadow-yellow-300'
           : 'border-blue-300 hover:border-blue-400'
       }`}
       style={{ cursor: 'pointer' }}
     >
-      <Handle type="target" position={Position.Top} id="top" style={{ background: '#3B82F6', width: 12, height: 12, border: '2px solid white' }} />
-      <Handle type="source" position={Position.Bottom} id="bottom" style={{ background: '#3B82F6', width: 12, height: 12, border: '2px solid white' }} />
-      <Handle type="target" position={Position.Left} id="left" style={{ background: '#3B82F6', width: 12, height: 12, border: '2px solid white' }} />
-      <Handle type="source" position={Position.Right} id="right" style={{ background: '#3B82F6', width: 12, height: 12, border: '2px solid white' }} />
-
-      <div className="flex items-center gap-2 mb-2">
+      <Handle type="target" position={Position.Top} id="top" className="!bg-blue-400" />
+      <Handle type="source" position={Position.Bottom} id="bottom" className="!bg-blue-400" />
+      <Handle type="target" position={Position.Left} id="left" className="!bg-blue-400" />
+      <Handle type="source" position={Position.Right} id="right" className="!bg-blue-400" />
+      
+      <div className="flex items-center gap-2">
         <Circle size={12} className="text-blue-500" fill="currentColor" />
-        <div className="font-medium text-sm text-black truncate">{data.label}</div>
-      </div>
-
-      {data.data && Object.keys(data.data).length > 0 && (
-        <div className="text-xs text-gray-600 space-y-1">
-          {Object.entries(data.data).slice(0, 2).map(([key, value]) => (
-            <div key={key} className="truncate">
-              <span className="text-gray-500">{key}:</span> {String(value)}
-            </div>
-          ))}
+        <div>
+          <div className="font-medium text-gray-900 text-sm">{data.label}</div>
+          <div className="text-xs text-gray-500">Instance</div>
         </div>
-      )}
+      </div>
     </div>
   );
-};
+});
 
-// Wrapper component with ReactFlowProvider
 export const EnhancedLineageGraph: React.FC<EnhancedLineageGraphProps> = (props) => {
   return (
     <ReactFlowProvider>
@@ -451,5 +438,3 @@ export const EnhancedLineageGraph: React.FC<EnhancedLineageGraphProps> = (props)
     </ReactFlowProvider>
   );
 };
-
-export default EnhancedLineageGraph;

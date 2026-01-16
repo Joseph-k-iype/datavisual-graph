@@ -1,4 +1,4 @@
-// frontend/src/App.tsx - COMPLETE FIXED VERSION
+// frontend/src/App.tsx - SIMPLIFIED STABLE VERSION
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Node as FlowNode } from 'reactflow';
@@ -32,29 +32,28 @@ function App() {
   const [expandedClasses, setExpandedClasses] = useState<Set<string>>(new Set());
   const [selectedNode, setSelectedNode] = useState<FlowNode | null>(null);
   const [highlightedPath, setHighlightedPath] = useState<LineagePathResponse | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  // Selection mode for path finding
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [pathFindingInProgress, setPathFindingInProgress] = useState(false);
 
-  // Define loadLineageGraph first (before loadSchema that uses it)
   const loadLineageGraph = useCallback(
     async (schemaId: string, expanded: string[]) => {
       try {
+        console.log('🔄 Loading lineage graph for:', schemaId);
         const graph = await apiService.getLineageGraph(schemaId, expanded);
+        console.log('✅ Loaded graph:', { nodes: graph?.nodes?.length, edges: graph?.edges?.length });
         setLineageGraph(graph);
       } catch (err) {
+        console.error('❌ Load failed:', err);
         setError(err instanceof Error ? err.message : 'Failed to load lineage graph');
       }
     },
     []
   );
 
-  // Load schema and visualization
   const loadSchema = useCallback((schemaId: string) => {
     (async () => {
       try {
@@ -68,10 +67,7 @@ function App() {
 
         setCurrentSchema(schema);
         setSchemaStats(stats);
-        
-        // Load initial lineage graph (collapsed)
         await loadLineageGraph(schemaId, []);
-        
         setView('visualization');
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load schema');
@@ -90,16 +86,23 @@ function App() {
         } else {
           newExpanded.add(classId);
         }
+        
+        // Reload graph with new expanded state
+        if (currentSchema) {
+          setTimeout(() => {
+            loadLineageGraph(currentSchema.id, Array.from(newExpanded));
+          }, 100);
+        }
+        
         return newExpanded;
       });
     },
-    []
+    [currentSchema, loadLineageGraph]
   );
 
   const handleNodeClick = useCallback((node: FlowNode) => {
     setSelectedNode(node);
     
-    // In selection mode, add to selected nodes for path finding
     if (selectionMode) {
       setSelectedNodeIds(prev => {
         if (prev.includes(node.id)) {
@@ -111,11 +114,9 @@ function App() {
     }
   }, [selectionMode]);
 
-  // SchemaBuilder passes schemaId (string) not the full schema object
   const handleSchemaCreated = useCallback((schemaId: string) => {
     (async () => {
       try {
-        // Load the full schema
         const schema = await apiService.getSchema(schemaId);
         setCurrentSchema(schema);
         await loadLineageGraph(schemaId, []);
@@ -128,15 +129,11 @@ function App() {
 
   const handleDataLoaded = useCallback(() => {
     if (currentSchema) {
-      // Reload lineage with current expanded state
       loadLineageGraph(currentSchema.id, Array.from(expandedClasses));
-      
-      // Reload stats
       apiService.getSchemaStats(currentSchema.id).then(setSchemaStats);
     }
   }, [currentSchema, expandedClasses, loadLineageGraph]);
 
-  // Find all paths between selected nodes
   const findAllPaths = useCallback(async () => {
     if (!currentSchema || selectedNodeIds.length < 2) {
       return;
@@ -146,70 +143,32 @@ function App() {
       setPathFindingInProgress(true);
       setError(null);
 
-      console.log('=== INITIATING PATH FINDING ===');
-      console.log('Selected Node IDs (in order):', selectedNodeIds);
-      console.log('Number of selected nodes:', selectedNodeIds.length);
-      
-      if (selectedNodeIds.length === 2) {
-        console.log(`Finding paths between: ${selectedNodeIds[0]} → ${selectedNodeIds[1]}`);
-      } else {
-        console.log(`Finding paths between ALL PAIRS of ${selectedNodeIds.length} selected nodes:`);
-        for (let i = 0; i < selectedNodeIds.length; i++) {
-          for (let j = i + 1; j < selectedNodeIds.length; j++) {
-            console.log(`  - ${selectedNodeIds[i]} ↔ ${selectedNodeIds[j]}`);
-          }
-        }
-      }
-      console.log('================================');
+      console.log('🔍 Finding paths between', selectedNodeIds.length, 'nodes');
 
       const response = await apiService.findAllPaths(
         currentSchema.id,
         selectedNodeIds,
-        20 // Increased max_depth for real scenarios
+        20
       );
 
       setHighlightedPath(response);
-      
-      console.log('=== PATH FINDING RESULT ===');
-      console.log(`Found ${response.paths.length} paths between selected nodes`);
-      if (response.paths.length > 0) {
-        console.log('Sample paths (first 5):', response.paths.slice(0, 5));
-      }
-      console.log('Total Highlighted Nodes:', response.highlighted_nodes.length);
-      console.log('Total Highlighted Edges:', response.highlighted_edges.length);
-      if (response.paths.length > 100) {
-        console.log(`⚠️ Large result set: ${response.paths.length} paths found - all will be displayed`);
-      }
-      console.log('===========================');
+      console.log('✅ Found', response.paths.length, 'paths');
       
     } catch (err) {
-      console.error('Path finding failed:', err);
+      console.error('❌ Path finding failed:', err);
       setError(err instanceof Error ? err.message : 'Failed to find paths');
     } finally {
       setPathFindingInProgress(false);
     }
   }, [currentSchema, selectedNodeIds]);
 
-  // Auto-find paths when 2+ nodes are selected in selection mode
   useEffect(() => {
     if (selectionMode && selectedNodeIds.length >= 2) {
       findAllPaths();
-    }
-  }, [selectionMode, selectedNodeIds, findAllPaths]);
-
-  // Clear highlights when search changes
-  useEffect(() => {
-    if (!searchQuery) {
+    } else {
       setHighlightedPath(null);
     }
-  }, [searchQuery]);
-
-  // Reload lineage when expanded classes change
-  useEffect(() => {
-    if (currentSchema) {
-      loadLineageGraph(currentSchema.id, Array.from(expandedClasses));
-    }
-  }, [currentSchema, expandedClasses, loadLineageGraph]);
+  }, [selectionMode, selectedNodeIds, findAllPaths]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -237,9 +196,7 @@ function App() {
 
       {view === 'visualization' && currentSchema && lineageGraph && (
         <div className="flex h-screen">
-          {/* Sidebar */}
           <div className="w-80 bg-white border-r border-gray-200 flex flex-col">
-            {/* Header */}
             <div className="p-6 border-b border-gray-200">
               <button
                 onClick={() => {
@@ -263,31 +220,23 @@ function App() {
               )}
             </div>
 
-            {/* Stats */}
             {schemaStats && (
               <div className="p-6 border-b border-gray-200 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-600">Classes</span>
-                  <span className="text-lg font-semibold text-black">
-                    {schemaStats.total_classes}
-                  </span>
+                  <span className="text-lg font-semibold text-black">{schemaStats.total_classes}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-600">Instances</span>
-                  <span className="text-lg font-semibold text-black">
-                    {schemaStats.total_instances}
-                  </span>
+                  <span className="text-lg font-semibold text-black">{schemaStats.total_instances}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-gray-600">Relationships</span>
-                  <span className="text-lg font-semibold text-black">
-                    {schemaStats.total_relationships}
-                  </span>
+                  <span className="text-lg font-semibold text-black">{schemaStats.total_relationships}</span>
                 </div>
               </div>
             )}
 
-            {/* Path Finding Controls */}
             <div className="p-6 border-b border-gray-200">
               <h3 className="text-sm font-semibold text-black mb-3">Path Finding</h3>
               
@@ -314,8 +263,8 @@ function App() {
                   <p className="text-xs text-blue-900 mb-2">
                     {selectedNodeIds.length === 0 && 'Click nodes to select them for path finding.'}
                     {selectedNodeIds.length === 1 && 'Select one more node to find paths.'}
-                    {selectedNodeIds.length === 2 && `Finding paths between 2 selected nodes.`}
-                    {selectedNodeIds.length > 2 && `Finding paths between ALL PAIRS of ${selectedNodeIds.length} selected nodes (${(selectedNodeIds.length * (selectedNodeIds.length - 1)) / 2} pairs).`}
+                    {selectedNodeIds.length === 2 && 'Finding paths between 2 selected nodes.'}
+                    {selectedNodeIds.length > 2 && `Finding paths between ${selectedNodeIds.length} nodes.`}
                   </p>
                   
                   {selectedNodeIds.length > 0 && (
@@ -342,11 +291,6 @@ function App() {
                         Nodes: {highlightedPath.highlighted_nodes.length} | 
                         Edges: {highlightedPath.highlighted_edges.length}
                       </p>
-                      {highlightedPath.paths.length > 10 && (
-                        <p className="text-xs text-blue-700 italic">
-                          Showing all {highlightedPath.paths.length} paths in graph
-                        </p>
-                      )}
                     </div>
                   )}
                   
@@ -372,7 +316,6 @@ function App() {
               )}
             </div>
 
-            {/* Actions */}
             <div className="p-6 space-y-3">
               <button
                 onClick={() => setView('data-loader')}
@@ -392,7 +335,6 @@ function App() {
             </div>
           </div>
 
-          {/* Main Graph Area */}
           <div className="flex-1 relative">
             {loading && (
               <div className="absolute inset-0 bg-white/80 flex items-center justify-center z-10">
