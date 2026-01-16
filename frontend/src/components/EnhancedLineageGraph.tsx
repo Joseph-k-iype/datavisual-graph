@@ -38,7 +38,7 @@ interface EnhancedLineageGraphProps {
   onToggleExpand?: (classId: string) => void;
 }
 
-export const EnhancedLineageGraph: React.FC<EnhancedLineageGraphProps> = ({
+const EnhancedLineageGraphInner: React.FC<EnhancedLineageGraphProps> = ({
   nodes: lineageNodes,
   edges: lineageEdges,
   highlightedNodes = [],
@@ -55,12 +55,14 @@ export const EnhancedLineageGraph: React.FC<EnhancedLineageGraphProps> = ({
     console.log('=== GRAPH UPDATE ===');
     console.log('Highlighted Nodes:', highlightedNodes);
     console.log('Highlighted Edges:', highlightedEdges);
+    console.log('Lineage Edges Available:', lineageEdges.map(e => e.id));
     
     const flowNodes = convertToFlowNodes(lineageNodes, highlightedNodes, selectedNodeIds);
     const flowEdges = convertToFlowEdges(lineageEdges, highlightedEdges);
     
-    console.log('Flow Nodes with highlighting:', flowNodes.filter(n => n.data.isHighlighted));
-    console.log('Flow Edges with highlighting:', flowEdges.filter(e => e.animated));
+    console.log('Flow Nodes with highlighting:', flowNodes.filter(n => n.data.isHighlighted).length);
+    console.log('Flow Edges with highlighting:', flowEdges.filter(e => e.animated).length);
+    console.log('Flow Edges IDs:', flowEdges.map(e => ({ id: e.id, animated: e.animated })));
     console.log('==================');
     
     setNodes(flowNodes);
@@ -115,6 +117,7 @@ export const EnhancedLineageGraph: React.FC<EnhancedLineageGraphProps> = ({
       <MiniMap
         nodeColor={(node) => {
           if (highlightedNodes.includes(node.id)) return '#EAB308';
+          if (selectedNodeIds.includes(node.id)) return '#2563EB';
           return node.data.color || '#6B7280';
         }}
         maskColor="rgba(0, 0, 0, 0.1)"
@@ -129,7 +132,8 @@ export const EnhancedLineageGraph: React.FC<EnhancedLineageGraphProps> = ({
           <div className="text-xs space-y-1">
             <LegendItem color="#6B7280" label="Schema Class" />
             <LegendItem color="#3B82F6" label="Data Instance" />
-            <LegendItem color="#EAB308" label="Highlighted Path" />
+            {selectionMode && <LegendItem color="#2563EB" label="Selected" />}
+            {highlightedNodes.length > 0 && <LegendItem color="#EAB308" label="Highlighted Path" />}
           </div>
         </div>
       </Panel>
@@ -241,25 +245,40 @@ function convertToFlowEdges(
   lineageEdges: LineageEdge[],
   highlightedEdges: string[]
 ): Edge[] {
-  return lineageEdges.map((edge) => ({
-    id: edge.id,
-    source: edge.source,
-    target: edge.target,
-    sourceHandle: 'bottom',
-    targetHandle: 'top',
-    type: edge.type === 'parent_child' ? 'straight' : 'smoothstep',
-    label: edge.label,
-    animated: highlightedEdges.includes(edge.id),
-    style: {
-      stroke: highlightedEdges.includes(edge.id) ? '#EAB308' : '#9CA3AF',
-      strokeWidth: highlightedEdges.includes(edge.id) ? 3 : 2,
-    },
-    labelStyle: {
-      fill: '#374151',
-      fontSize: 12,
-      fontWeight: 600,
-    },
-  }));
+  console.log('Converting edges:', {
+    totalEdges: lineageEdges.length,
+    highlightedEdges: highlightedEdges.length,
+    edgeIds: lineageEdges.map(e => e.id),
+    highlightIds: highlightedEdges
+  });
+
+  return lineageEdges.map((edge) => {
+    const isHighlighted = highlightedEdges.includes(edge.id);
+    
+    return {
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      sourceHandle: edge.type === 'parent_child' ? 'bottom' : 'right',
+      targetHandle: edge.type === 'parent_child' ? 'top' : 'left',
+      type: edge.type === 'parent_child' ? 'straight' : 'smoothstep',
+      label: edge.label,
+      animated: isHighlighted,
+      style: {
+        stroke: isHighlighted ? '#EAB308' : '#9CA3AF',
+        strokeWidth: isHighlighted ? 4 : 2,
+      },
+      labelStyle: {
+        fill: '#374151',
+        fontSize: 12,
+        fontWeight: 600,
+      },
+      labelBgStyle: {
+        fill: 'white',
+        fillOpacity: 0.9,
+      },
+    };
+  });
 }
 
 // Schema Class Node Component
@@ -302,30 +321,47 @@ const SchemaClassNode: React.FC<SchemaClassNodeProps> = ({ data, onToggleExpand 
         </div>
         
         {hasInstances && (
-          <button onClick={handleToggle} className="p-2 hover:bg-gray-100 rounded transition-colors" title={data.collapsed ? 'Expand to see data' : 'Collapse'}>
-            {data.collapsed ? <ChevronRight size={20} className="text-gray-600" /> : <ChevronDown size={20} className="text-gray-600" />}
+          <button 
+            onClick={handleToggle} 
+            className="p-2 hover:bg-gray-100 rounded transition-colors" 
+            title={data.collapsed ? 'Expand to see data' : 'Collapse'}
+          >
+            {data.collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
           </button>
         )}
       </div>
 
-      {data.data?.description && <p className="text-xs text-gray-600 mb-2">{data.data.description}</p>}
-
-      <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t border-gray-200">
-        <span className="flex items-center gap-1">
-          {data.instance_count || 0} instances
-          {hasInstances && data.collapsed && <span className="text-blue-600 font-medium">(click to expand)</span>}
-        </span>
-        {data.attributes && data.attributes.length > 0 && <span>{data.attributes.length} attrs</span>}
-      </div>
+      {data.attributes && data.attributes.length > 0 && (
+        <div className="text-xs text-gray-600 space-y-1">
+          {data.attributes.slice(0, 3).map((attr, i) => (
+            <div key={i}>{attr}</div>
+          ))}
+          {data.attributes.length > 3 && (
+            <div className="text-gray-400">+{data.attributes.length - 3} more</div>
+          )}
+        </div>
+      )}
+      
+      {hasInstances && (
+        <div className="mt-2 pt-2 border-t border-gray-200">
+          <div className="text-xs text-gray-500">
+            {data.instance_count} instance{data.instance_count !== 1 ? 's' : ''}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 // Data Instance Node Component
-const DataInstanceNode: React.FC<{ data: FlowNodeData }> = ({ data }) => {
+interface DataInstanceNodeProps {
+  data: FlowNodeData;
+}
+
+const DataInstanceNode: React.FC<DataInstanceNodeProps> = ({ data }) => {
   return (
     <div
-      className={`px-4 py-3 rounded-lg border-2 bg-white shadow-md transition-all min-w-[150px] ${
+      className={`px-4 py-3 rounded-lg border-2 bg-white shadow-md transition-all min-w-[180px] ${
         data.isSelected
           ? 'border-blue-600 shadow-blue-200 ring-4 ring-blue-200'
           : data.isHighlighted
@@ -338,17 +374,16 @@ const DataInstanceNode: React.FC<{ data: FlowNodeData }> = ({ data }) => {
       <Handle type="target" position={Position.Left} id="left" style={{ background: '#3B82F6', width: 12, height: 12, border: '2px solid white' }} />
       <Handle type="source" position={Position.Right} id="right" style={{ background: '#3B82F6', width: 12, height: 12, border: '2px solid white' }} />
 
-      <div className="flex items-center gap-2 mb-1">
-        <Circle size={14} className="text-blue-600" />
-        <div className="text-sm font-medium text-black">{data.label}</div>
+      <div className="flex items-center gap-2 mb-2">
+        <Circle size={14} className="text-blue-500" fill="currentColor" />
+        <div className="font-medium text-sm text-black">{data.label}</div>
       </div>
 
       {data.data && Object.keys(data.data).length > 0 && (
-        <div className="text-xs text-gray-600 mt-2 space-y-1">
-          {Object.entries(data.data).slice(0, 3).map(([key, value]) => (
-            <div key={key} className="flex gap-2">
-              <span className="font-medium">{key}:</span>
-              <span className="truncate">{String(value)}</span>
+        <div className="text-xs text-gray-600 space-y-1">
+          {Object.entries(data.data).slice(0, 2).map(([key, value]) => (
+            <div key={key} className="truncate">
+              <span className="text-gray-500">{key}:</span> {String(value)}
             </div>
           ))}
         </div>
@@ -357,9 +392,13 @@ const DataInstanceNode: React.FC<{ data: FlowNodeData }> = ({ data }) => {
   );
 };
 
-// Wrap with ReactFlowProvider
-export const EnhancedLineageGraphWithProvider: React.FC<EnhancedLineageGraphProps> = (props) => (
-  <ReactFlowProvider>
-    <EnhancedLineageGraph {...props} />
-  </ReactFlowProvider>
-);
+// Wrapper component with ReactFlowProvider
+export const EnhancedLineageGraph: React.FC<EnhancedLineageGraphProps> = (props) => {
+  return (
+    <ReactFlowProvider>
+      <EnhancedLineageGraphInner {...props} />
+    </ReactFlowProvider>
+  );
+};
+
+export default EnhancedLineageGraph;

@@ -5,7 +5,7 @@ import { Node as FlowNode } from 'reactflow';
 import { LandingPage } from './components/LandingPage';
 import { SchemaBuilder } from './components/SchemaBuilder';
 import { DataLoader } from './components/DataLoader';
-import { EnhancedLineageGraphWithProvider } from './components/EnhancedLineageGraph';
+import { EnhancedLineageGraph } from './components/EnhancedLineageGraph'; // FIXED: Removed WithProvider
 import {
   Upload,
   ArrowLeft,
@@ -154,21 +154,18 @@ function App() {
 
       setHighlightedPath(response);
       
-      console.log('=== PATH FINDING DEBUG ===');
+      console.log('=== PATH FINDING RESULT ===');
       console.log(`Found ${response.paths.length} paths between selected nodes`);
-      console.log('Paths:', response.paths);
       console.log('Highlighted Nodes:', response.highlighted_nodes);
       console.log('Highlighted Edges:', response.highlighted_edges);
-      console.log('Current Graph Nodes:', lineageGraph?.nodes.map(n => n.id));
-      console.log('Current Graph Edges:', lineageGraph?.edges.map(e => e.id));
-      console.log('=========================');
+      console.log('===========================');
       
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to find paths');
     } finally {
       setPathFindingInProgress(false);
     }
-  }, [currentSchema, selectedNodeIds, lineageGraph]);
+  }, [currentSchema, selectedNodeIds]);
 
   // Auto-find paths when 2+ nodes are selected in selection mode
   useEffect(() => {
@@ -339,39 +336,9 @@ function App() {
                 className="w-full py-2 px-4 bg-gray-100 text-gray-900 rounded-lg hover:bg-gray-200 transition-colors flex items-center justify-center gap-2"
               >
                 <RefreshCw size={16} />
-                <span className="text-sm font-medium">Refresh</span>
+                <span className="text-sm font-medium">Refresh Graph</span>
               </button>
             </div>
-
-            {/* Selected Node Info */}
-            {selectedNode && !selectionMode && (
-              <div className="p-6 border-t border-gray-200 flex-1 overflow-auto">
-                <h3 className="text-sm font-semibold text-black mb-3">Selected Node</h3>
-                <div className="space-y-2">
-                  <div>
-                    <span className="text-xs text-gray-600">Name</span>
-                    <p className="text-sm text-black font-medium">{selectedNode.data.label}</p>
-                  </div>
-                  <div>
-                    <span className="text-xs text-gray-600">Type</span>
-                    <p className="text-sm text-black">{selectedNode.data.nodeType}</p>
-                  </div>
-                  {selectedNode.data.data && (
-                    <div>
-                      <span className="text-xs text-gray-600">Properties</span>
-                      <div className="mt-1 space-y-1">
-                        {Object.entries(selectedNode.data.data).map(([key, value]) => (
-                          <div key={key} className="text-xs">
-                            <span className="text-gray-600">{key}:</span>{' '}
-                            <span className="text-black">{String(value)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Main Graph Area */}
@@ -394,7 +361,8 @@ function App() {
               </div>
             )}
 
-            <EnhancedLineageGraphWithProvider
+            {/* FIXED: Using EnhancedLineageGraph directly (includes ReactFlowProvider internally) */}
+            <EnhancedLineageGraph
               nodes={lineageGraph.nodes}
               edges={lineageGraph.edges}
               highlightedNodes={highlightedPath?.highlighted_nodes || []}

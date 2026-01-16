@@ -1,69 +1,42 @@
-# backend/app/services/schema_service.py
-"""
-Schema Service - Manages schema definitions and data instances
-COMPLETE IMPLEMENTATION with ALL PATHS traversal
-"""
+# backend/app/services/schema_service.py - COMPLETE FIXED VERSION
 
-import uuid
-import json
-from datetime import datetime
-from typing import List, Dict, Any, Optional, Set
+from typing import List, Optional, Set, Dict, Any
 from ..database import db
 from ..models.schemas import (
     SchemaDefinition, SchemaClass, SchemaRelationship,
-    DataInstance, DataRelationship, SchemaCreateRequest,
-    LineageNode, LineageEdge, LineageGraphResponse,
-    LineagePathResponse, SchemaStats, Cardinality
+    SchemaStats, LineageGraphResponse, LineageNode, LineageEdge,
+    LineagePathResponse
 )
+import json
 import logging
 
 logger = logging.getLogger(__name__)
 
 
 class SchemaService:
-    """Service for managing schemas and data instances"""
+    """Service for schema operations"""
     
     @staticmethod
-    def create_schema(request: SchemaCreateRequest) -> SchemaDefinition:
+    def create_schema(schema: SchemaDefinition) -> SchemaDefinition:
         """Create a new schema"""
         try:
-            schema_id = str(uuid.uuid4())
-            timestamp = datetime.utcnow().isoformat()
-            
-            schema = SchemaDefinition(
-                id=schema_id,
-                name=request.name,
-                description=request.description,
-                classes=request.classes,
-                relationships=request.relationships,
-                created_at=timestamp,
-                updated_at=timestamp
-            )
-            
-            # Store schema in FalkorDB
             # Create schema node
             schema_query = """
             CREATE (s:Schema {
                 id: $id,
                 name: $name,
                 description: $description,
-                version: $version,
-                created_at: $created_at,
-                updated_at: $updated_at
+                created_at: datetime()
             })
             RETURN s
             """
-            
             db.execute_query(schema_query, {
                 'id': schema.id,
                 'name': schema.name,
-                'description': schema.description or '',
-                'version': schema.version,
-                'created_at': schema.created_at,
-                'updated_at': schema.updated_at
+                'description': schema.description or ''
             })
             
-            # Create class nodes
+            # Create schema class nodes
             for cls in schema.classes:
                 class_query = """
                 MATCH (s:Schema {id: $schema_id})
@@ -79,7 +52,6 @@ class SchemaService:
                 CREATE (s)-[:HAS_CLASS]->(c)
                 RETURN c
                 """
-                
                 db.execute_query(class_query, {
                     'schema_id': schema.id,
                     'id': cls.id,
@@ -90,33 +62,29 @@ class SchemaService:
                     'icon': cls.icon or 'Box'
                 })
             
-            # Create relationship edges
+            # Create schema relationship edges
             for rel in schema.relationships:
                 rel_query = """
-                MATCH (source:SchemaClass {id: $source_id, schema_id: $schema_id})
-                MATCH (target:SchemaClass {id: $target_id, schema_id: $schema_id})
+                MATCH (source:SchemaClass {id: $source_id})
+                MATCH (target:SchemaClass {id: $target_id})
                 CREATE (source)-[r:SCHEMA_REL {
                     id: $id,
                     name: $name,
-                    cardinality: $cardinality,
                     description: $description,
-                    bidirectional: $bidirectional
+                    cardinality: $cardinality
                 }]->(target)
                 RETURN r
                 """
-                
                 db.execute_query(rel_query, {
-                    'schema_id': schema.id,
                     'id': rel.id,
-                    'name': rel.name,
                     'source_id': rel.source_class_id,
                     'target_id': rel.target_class_id,
-                    'cardinality': rel.cardinality.value,
+                    'name': rel.name,
                     'description': rel.description or '',
-                    'bidirectional': rel.bidirectional
+                    'cardinality': rel.cardinality
                 })
             
-            logger.info(f"Created schema: {schema.name} (ID: {schema.id})")
+            logger.info(f"Created schema: {schema.id} with {len(schema.classes)} classes and {len(schema.relationships)} relationships")
             return schema
             
         except Exception as e:
@@ -125,77 +93,69 @@ class SchemaService:
     
     @staticmethod
     def get_schema(schema_id: str) -> Optional[SchemaDefinition]:
-        """Get schema by ID"""
+        """Get a schema by ID"""
         try:
-            # Get schema node
+            # Get schema
             schema_query = """
             MATCH (s:Schema {id: $schema_id})
             RETURN s
             """
+            schema_result = db.execute_query(schema_query, {'schema_id': schema_id})
             
-            result = db.execute_query(schema_query, {'schema_id': schema_id})
-            
-            if not result.result_set:
+            if not schema_result.result_set:
                 return None
             
-            schema_node = result.result_set[0][0]
+            schema_node = schema_result.result_set[0][0]
             schema_props = dict(schema_node.properties)
             
             # Get classes
             classes_query = """
-            MATCH (s:Schema {id: $schema_id})-[:HAS_CLASS]->(c:SchemaClass)
+            MATCH (c:SchemaClass)-[:BELONGS_TO]->(s:Schema {id: $schema_id})
             RETURN c
             """
-            
             classes_result = db.execute_query(classes_query, {'schema_id': schema_id})
-            classes = []
             
+            classes = []
             if classes_result.result_set:
                 for row in classes_result.result_set:
-                    cls_props = dict(row[0].properties)
+                    cls = row[0]
+                    cls_props = dict(cls.properties)
                     classes.append(SchemaClass(
                         id=cls_props['id'],
                         name=cls_props['name'],
-                        description=cls_props.get('description'),
+                        description=cls_props.get('description', ''),
                         attributes=json.loads(cls_props.get('attributes', '[]')),
-                        color=cls_props.get('color'),
-                        icon=cls_props.get('icon')
+                        color=cls_props.get('color', '#6B7280'),
+                        icon=cls_props.get('icon', 'Box')
                     ))
             
             # Get relationships
             rels_query = """
-            MATCH (s:SchemaClass {schema_id: $schema_id})-[r:SCHEMA_REL]->(t:SchemaClass {schema_id: $schema_id})
-            RETURN s.id, t.id, r
+            MATCH (source:SchemaClass {schema_id: $schema_id})-[r:SCHEMA_REL]->(target:SchemaClass {schema_id: $schema_id})
+            RETURN r, source.id, target.id
             """
-            
             rels_result = db.execute_query(rels_query, {'schema_id': schema_id})
-            relationships = []
             
+            relationships = []
             if rels_result.result_set:
                 for row in rels_result.result_set:
-                    source_id = row[0]
-                    target_id = row[1]
-                    rel_props = dict(row[2].properties)
-                    
+                    rel = row[0]
+                    rel_props = dict(rel.properties)
                     relationships.append(SchemaRelationship(
                         id=rel_props['id'],
                         name=rel_props['name'],
-                        source_class_id=source_id,
-                        target_class_id=target_id,
-                        cardinality=Cardinality(rel_props['cardinality']),
-                        description=rel_props.get('description'),
-                        bidirectional=rel_props.get('bidirectional', False)
+                        description=rel_props.get('description', ''),
+                        source_class_id=row[1],
+                        target_class_id=row[2],
+                        cardinality=rel_props.get('cardinality', 'one_to_many')
                     ))
             
             return SchemaDefinition(
                 id=schema_props['id'],
                 name=schema_props['name'],
-                description=schema_props.get('description'),
-                version=schema_props.get('version', '1.0.0'),
+                description=schema_props.get('description', ''),
                 classes=classes,
-                relationships=relationships,
-                created_at=schema_props.get('created_at'),
-                updated_at=schema_props.get('updated_at')
+                relationships=relationships
             )
             
         except Exception as e:
@@ -204,32 +164,31 @@ class SchemaService:
     
     @staticmethod
     def list_schemas() -> List[Dict[str, Any]]:
-        """List all schemas"""
+        """List all schemas - returns dict format for API response"""
         try:
             query = """
             MATCH (s:Schema)
-            OPTIONAL MATCH (s)-[:HAS_CLASS]->(c:SchemaClass)
-            WITH s, COUNT(c) as class_count
-            RETURN s, class_count
+            RETURN s
             ORDER BY s.created_at DESC
             """
-            
             result = db.execute_query(query)
-            schemas = []
             
+            schemas = []
             if result.result_set:
                 for row in result.result_set:
-                    props = dict(row[0].properties)
-                    class_count = row[1]
-                    
+                    schema_node = row[0]
+                    schema_props = dict(schema_node.properties)
+                    # Return as dictionary for API serialization
                     schemas.append({
-                        'id': props['id'],
-                        'name': props['name'],
-                        'description': props.get('description'),
-                        'version': props.get('version', '1.0.0'),
-                        'class_count': class_count,
-                        'created_at': props.get('created_at'),
-                        'updated_at': props.get('updated_at')
+                        'id': schema_props['id'],
+                        'name': schema_props['name'],
+                        'description': schema_props.get('description', ''),
+                        'version': schema_props.get('version', '1.0.0'),
+                        'created_at': schema_props.get('created_at'),
+                        'updated_at': schema_props.get('updated_at'),
+                        'classes': [],  # Empty list for listing view
+                        'relationships': [],  # Empty list for listing view
+                        'metadata': {}
                     })
             
             return schemas
@@ -240,106 +199,20 @@ class SchemaService:
     
     @staticmethod
     def delete_schema(schema_id: str) -> bool:
-        """Delete a schema and all associated data"""
+        """Delete a schema and all its data"""
         try:
-            # Delete all data instances
-            delete_instances_query = """
-            MATCH (s:Schema {id: $schema_id})-[:HAS_CLASS]->(c:SchemaClass)<-[:INSTANCE_OF]-(i:DataInstance)
-            DETACH DELETE i
-            """
-            db.execute_query(delete_instances_query, {'schema_id': schema_id})
-            
-            # Delete schema classes and relationships
-            delete_schema_query = """
+            query = """
             MATCH (s:Schema {id: $schema_id})
-            OPTIONAL MATCH (s)-[:HAS_CLASS]->(c:SchemaClass)
-            DETACH DELETE s, c
+            OPTIONAL MATCH (s)<-[:BELONGS_TO]-(c:SchemaClass)
+            OPTIONAL MATCH (c)<-[:INSTANCE_OF]-(i:DataInstance)
+            DETACH DELETE s, c, i
             """
-            db.execute_query(delete_schema_query, {'schema_id': schema_id})
-            
+            db.execute_query(query, {'schema_id': schema_id})
             logger.info(f"Deleted schema: {schema_id}")
             return True
             
         except Exception as e:
             logger.error(f"Failed to delete schema: {str(e)}")
-            raise
-    
-    @staticmethod
-    def create_data_instance(instance: DataInstance) -> DataInstance:
-        """Create a data instance"""
-        try:
-            # First verify the SchemaClass exists
-            check_query = """
-            MATCH (c:SchemaClass {id: $class_id})
-            RETURN c
-            """
-            check_result = db.execute_query(check_query, {'class_id': instance.class_id})
-            
-            if not check_result.result_set:
-                logger.error(f"SchemaClass not found for id: {instance.class_id}")
-                raise ValueError(f"SchemaClass not found: {instance.class_id}")
-            
-            logger.info(f"Creating DataInstance {instance.id} for class {instance.class_id}")
-            
-            query = """
-            MATCH (c:SchemaClass {id: $class_id})
-            CREATE (i:DataInstance {
-                id: $id,
-                class_id: $class_id,
-                class_name: $class_name,
-                data: $data,
-                source_file: $source_file,
-                source_row: $source_row
-            })
-            CREATE (c)<-[:INSTANCE_OF]-(i)
-            RETURN i
-            """
-            
-            result = db.execute_query(query, {
-                'id': instance.id,
-                'class_id': instance.class_id,
-                'class_name': instance.class_name,
-                'data': json.dumps(instance.data),
-                'source_file': instance.source_file or '',
-                'source_row': instance.source_row or 0
-            })
-            
-            if not result.result_set:
-                raise ValueError(f"Failed to create instance - no result returned")
-            
-            logger.info(f"Successfully created DataInstance {instance.id}")
-            return instance
-            
-        except Exception as e:
-            logger.error(f"Failed to create data instance: {str(e)}")
-            logger.error(f"Instance details: class_id={instance.class_id}, id={instance.id}")
-            raise
-    
-    @staticmethod
-    def create_data_relationship(rel: DataRelationship) -> DataRelationship:
-        """Create a relationship between data instances"""
-        try:
-            query = """
-            MATCH (source:DataInstance {id: $source_id})
-            MATCH (target:DataInstance {id: $target_id})
-            CREATE (source)-[r:DATA_REL {
-                id: $id,
-                schema_relationship_id: $schema_rel_id
-            }]->(target)
-            RETURN r
-            """
-            
-            db.execute_query(query, {
-                'id': rel.id,
-                'source_id': rel.source_instance_id,
-                'target_id': rel.target_instance_id,
-                'schema_rel_id': rel.schema_relationship_id
-            })
-            
-            return rel
-            
-        except Exception as e:
-            logger.error(f"Failed to create data relationship: {str(e)}")
             raise
     
     @staticmethod
@@ -458,6 +331,121 @@ class SchemaService:
             raise
     
     @staticmethod
+    def get_all_paths_between_nodes(schema_id: str, node_ids: List[str], max_depth: int = 10) -> LineagePathResponse:
+        """
+        Find ALL paths between multiple nodes (FIXED VERSION WITH PROPER EDGE COLLECTION)
+        """
+        try:
+            if len(node_ids) < 2:
+                logger.warning("Need at least 2 nodes for path finding")
+                return LineagePathResponse(
+                    paths=[],
+                    highlighted_nodes=node_ids,
+                    highlighted_edges=[]
+                )
+            
+            all_paths = []
+            all_nodes = set(node_ids)
+            all_edges = set()
+            
+            # For 2 nodes, find all paths between them
+            if len(node_ids) == 2:
+                start_id = node_ids[0]
+                end_id = node_ids[1]
+                
+                logger.info(f"Finding paths between {start_id} and {end_id}")
+                
+                # Try bidirectional paths
+                query = f"""
+                MATCH (start {{id: $start_id}})
+                MATCH (end {{id: $end_id}})
+                MATCH path = (start)-[*1..{max_depth}]-(end)
+                WITH path, nodes(path) as node_list, relationships(path) as rel_list
+                RETURN 
+                    [n IN node_list | n.id] as node_ids,
+                    [i IN range(0, size(rel_list)-1) | {{
+                        rel_id: rel_list[i].id,
+                        source: node_list[i].id,
+                        target: node_list[i+1].id,
+                        type: type(rel_list[i])
+                    }}] as edge_info
+                LIMIT 50
+                """
+                
+                result = db.execute_query(query, {
+                    'start_id': start_id,
+                    'end_id': end_id
+                })
+                
+                if result.result_set:
+                    for row in result.result_set:
+                        node_path = row[0] if row[0] else []
+                        edge_info_list = row[1] if row[1] else []
+                        
+                        if node_path:
+                            all_paths.append(node_path)
+                            all_nodes.update(node_path)
+                            
+                            # Collect edge IDs with proper formatting
+                            for edge_info in edge_info_list:
+                                rel_id = edge_info.get('rel_id')
+                                source = edge_info.get('source')
+                                target = edge_info.get('target')
+                                rel_type = edge_info.get('type')
+                                
+                                # Match the edge ID format used in get_lineage_graph
+                                if rel_type == 'INSTANCE_OF':
+                                    # Parent-child relationship: parent_{class_id}_{instance_id}
+                                    edge_id = f"parent_{source}_{target}"
+                                    all_edges.add(edge_id)
+                                elif rel_type == 'DATA_REL':
+                                    # Data relationship: use the relationship's own ID
+                                    if rel_id:
+                                        all_edges.add(rel_id)
+                                elif rel_type == 'SCHEMA_REL':
+                                    # Schema relationship: use the relationship's own ID
+                                    if rel_id:
+                                        all_edges.add(rel_id)
+                else:
+                    logger.warning(f"No paths found between {start_id} and {end_id}")
+                    all_nodes.update([start_id, end_id])
+            
+            # For 3+ nodes, find paths connecting consecutive pairs
+            else:
+                for i in range(len(node_ids) - 1):
+                    start_id = node_ids[i]
+                    end_id = node_ids[i + 1]
+                    
+                    # Find all paths for this segment
+                    segment_response = SchemaService.get_all_paths_between_nodes(
+                        schema_id, [start_id, end_id], max_depth
+                    )
+                    
+                    # Merge results
+                    all_paths.extend(segment_response.paths)
+                    all_nodes.update(segment_response.highlighted_nodes)
+                    all_edges.update(segment_response.highlighted_edges)
+            
+            logger.info(f"Found {len(all_paths)} paths, {len(all_nodes)} nodes, {len(all_edges)} edges")
+            logger.info(f"Edge IDs: {list(all_edges)[:10]}...")  # Log first 10 edges
+            
+            return LineagePathResponse(
+                paths=all_paths,
+                highlighted_nodes=list(all_nodes),
+                highlighted_edges=list(all_edges)
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to get all paths: {str(e)}")
+            logger.error(f"Node IDs: {node_ids}")
+            # Return empty response instead of raising
+            return LineagePathResponse(
+                paths=[],
+                highlighted_nodes=node_ids,
+                highlighted_edges=[]
+            )
+    
+    @staticmethod
     def get_lineage_path(schema_id: str, start_node_id: str, end_node_id: Optional[str] = None, max_depth: int = 10) -> LineagePathResponse:
         """Get lineage path from start node to end node (or all descendants)"""
         try:
@@ -503,6 +491,12 @@ class SchemaService:
                     
                     all_nodes.update([inst for inst in instances if inst])
                     
+                    # Add parent-child edges
+                    for inst in instances:
+                        if inst:
+                            all_edges.add(f"parent_{start_node_id}_{inst}")
+                    
+                    # Add schema relationship edges
                     for rel in relationships:
                         if rel and 'rel_id' in rel:
                             all_edges.add(rel['rel_id'])
@@ -566,178 +560,8 @@ class SchemaService:
     def get_shortest_path(schema_id: str, node_ids: List[str]) -> LineagePathResponse:
         """
         Find shortest path between multiple nodes (LEGACY METHOD - use get_all_paths_between_nodes instead)
-        For 2 nodes: direct shortest path
-        For 3+ nodes: finds path connecting all nodes
         """
-        # Delegate to all_paths with max_depth=10
         return SchemaService.get_all_paths_between_nodes(schema_id, node_ids, max_depth=10)
-    
-    @staticmethod
-    def get_all_paths_between_nodes(schema_id: str, node_ids: List[str], max_depth: int = 10) -> LineagePathResponse:
-        """
-        Find ALL paths between multiple nodes (not just shortest paths).
-        This returns all possible paths including those through different intermediate nodes.
-        
-        For 2 nodes: finds ALL paths between them
-        For 3+ nodes: finds ALL paths connecting consecutive pairs
-        """
-        try:
-            if len(node_ids) < 2:
-                raise ValueError("At least 2 nodes required")
-            
-            all_paths = []
-            all_nodes = set()
-            all_edges = set()
-            
-            # For 2 nodes, find ALL paths (not just shortest)
-            if len(node_ids) == 2:
-                start_id = node_ids[0]
-                end_id = node_ids[1]
-                
-                # Find all paths in forward direction
-                query_forward = """
-                MATCH (start {id: $start_id}), (end {id: $end_id})
-                MATCH p = (start)-[*1..%d]->(end)
-                WITH nodes(p) as node_list, size(nodes(p)) as path_length
-                RETURN [n IN node_list | n.id] as node_ids, path_length
-                ORDER BY path_length
-                """ % max_depth
-                
-                try:
-                    result = db.execute_query(query_forward, {
-                        'start_id': start_id,
-                        'end_id': end_id
-                    })
-                    
-                    if result.result_set:
-                        logger.info(f"Found {len(result.result_set)} forward paths")
-                        for row in result.result_set:
-                            path_nodes = row[0]
-                            
-                            if path_nodes:
-                                all_paths.append(path_nodes)
-                                all_nodes.update(path_nodes)
-                                
-                                # Find actual edge IDs between consecutive nodes
-                                for i in range(len(path_nodes) - 1):
-                                    edge_id = SchemaService._find_edge_between_nodes(
-                                        path_nodes[i], path_nodes[i + 1]
-                                    )
-                                    if edge_id:
-                                        all_edges.add(edge_id)
-                                
-                except Exception as e:
-                    logger.debug(f"Forward path query failed: {str(e)}")
-                
-                # Try backward direction too
-                query_backward = """
-                MATCH (start {id: $start_id}), (end {id: $end_id})
-                MATCH p = (start)<-[*1..%d]-(end)
-                WITH nodes(p) as node_list, size(nodes(p)) as path_length
-                RETURN [n IN node_list | n.id] as node_ids, path_length
-                ORDER BY path_length
-                """ % max_depth
-                
-                try:
-                    result = db.execute_query(query_backward, {
-                        'start_id': start_id,
-                        'end_id': end_id
-                    })
-                    
-                    if result.result_set:
-                        logger.info(f"Found {len(result.result_set)} backward paths")
-                        for row in result.result_set:
-                            path_nodes = row[0]
-                            
-                            if path_nodes:
-                                all_paths.append(path_nodes)
-                                all_nodes.update(path_nodes)
-                                
-                                # Find actual edge IDs between consecutive nodes
-                                for i in range(len(path_nodes) - 1):
-                                    edge_id = SchemaService._find_edge_between_nodes(
-                                        path_nodes[i], path_nodes[i + 1]
-                                    )
-                                    if edge_id:
-                                        all_edges.add(edge_id)
-                                
-                except Exception as e:
-                    logger.debug(f"Backward path query failed: {str(e)}")
-                
-                # Also try bidirectional (undirected) paths
-                query_undirected = """
-                MATCH (start {id: $start_id}), (end {id: $end_id})
-                MATCH p = (start)-[*1..%d]-(end)
-                WITH nodes(p) as node_list, size(nodes(p)) as path_length
-                RETURN [n IN node_list | n.id] as node_ids, path_length
-                ORDER BY path_length
-                """ % max_depth
-                
-                try:
-                    result = db.execute_query(query_undirected, {
-                        'start_id': start_id,
-                        'end_id': end_id
-                    })
-                    
-                    if result.result_set:
-                        logger.info(f"Found {len(result.result_set)} undirected paths")
-                        for row in result.result_set:
-                            path_nodes = row[0]
-                            
-                            if path_nodes:
-                                # Avoid duplicate paths
-                                if path_nodes not in all_paths:
-                                    all_paths.append(path_nodes)
-                                all_nodes.update(path_nodes)
-                                
-                                # Find actual edge IDs between consecutive nodes
-                                for i in range(len(path_nodes) - 1):
-                                    edge_id = SchemaService._find_edge_between_nodes(
-                                        path_nodes[i], path_nodes[i + 1]
-                                    )
-                                    if edge_id:
-                                        all_edges.add(edge_id)
-                                
-                except Exception as e:
-                    logger.debug(f"Undirected path query failed: {str(e)}")
-                
-                if not all_nodes:
-                    logger.warning(f"No paths found between {start_id} and {end_id}")
-                    all_nodes.update([start_id, end_id])
-            
-            # For 3+ nodes, find paths connecting consecutive pairs
-            else:
-                for i in range(len(node_ids) - 1):
-                    start_id = node_ids[i]
-                    end_id = node_ids[i + 1]
-                    
-                    # Find all paths for this segment
-                    segment_response = SchemaService.get_all_paths_between_nodes(
-                        schema_id, [start_id, end_id], max_depth
-                    )
-                    
-                    # Merge results
-                    all_paths.extend(segment_response.paths)
-                    all_nodes.update(segment_response.highlighted_nodes)
-                    all_edges.update(segment_response.highlighted_edges)
-            
-            logger.info(f"Total: {len(all_paths)} paths, {len(all_nodes)} nodes, {len(all_edges)} edges")
-            
-            return LineagePathResponse(
-                paths=all_paths,
-                highlighted_nodes=list(all_nodes),
-                highlighted_edges=list(all_edges)
-            )
-            
-        except Exception as e:
-            logger.error(f"Failed to get all paths: {str(e)}")
-            logger.error(f"Node IDs: {node_ids}")
-            # Return empty response instead of raising
-            return LineagePathResponse(
-                paths=[],
-                highlighted_nodes=node_ids,
-                highlighted_edges=[]
-            )
     
     @staticmethod
     def get_schema_stats(schema_id: str) -> SchemaStats:
@@ -749,41 +573,37 @@ class SchemaService:
             
             # Get total instances
             instances_query = """
-            MATCH (s:Schema {id: $schema_id})-[:HAS_CLASS]->(:SchemaClass)<-[:INSTANCE_OF]-(i:DataInstance)
-            RETURN COUNT(i) as total
+            MATCH (c:SchemaClass)-[:BELONGS_TO]->(s:Schema {id: $schema_id})
+            OPTIONAL MATCH (c)<-[:INSTANCE_OF]-(i:DataInstance)
+            RETURN c.id as class_id, COUNT(i) as instance_count
             """
             instances_result = db.execute_query(instances_query, {'schema_id': schema_id})
-            total_instances = instances_result.result_set[0][0] if instances_result.result_set else 0
+            
+            instances_by_class = {}
+            total_instances = 0
+            if instances_result.result_set:
+                for row in instances_result.result_set:
+                    class_id = row[0]
+                    count = row[1]
+                    instances_by_class[class_id] = count
+                    total_instances += count
             
             # Get total data relationships
             data_rels_query = """
-            MATCH (s:Schema {id: $schema_id})-[:HAS_CLASS]->(:SchemaClass)<-[:INSTANCE_OF]-(:DataInstance)-[r:DATA_REL]->()
-            RETURN COUNT(r) as total
+            MATCH (source:DataInstance)-[r:DATA_REL]->(target:DataInstance)
+            WHERE source.schema_id = $schema_id
+            RETURN COUNT(r) as count
             """
             data_rels_result = db.execute_query(data_rels_query, {'schema_id': schema_id})
-            total_data_rels = data_rels_result.result_set[0][0] if data_rels_result.result_set else 0
-            
-            # Get instances by class
-            by_class_query = """
-            MATCH (c:SchemaClass {schema_id: $schema_id})<-[:INSTANCE_OF]-(i:DataInstance)
-            RETURN c.name as class_name, COUNT(i) as count
-            """
-            by_class_result = db.execute_query(by_class_query, {'schema_id': schema_id})
-            
-            instances_by_class = {}
-            if by_class_result.result_set:
-                for row in by_class_result.result_set:
-                    class_name = row[0]
-                    count = row[1]
-                    instances_by_class[class_name] = count
+            total_data_relationships = data_rels_result.result_set[0][0] if data_rels_result.result_set else 0
             
             return SchemaStats(
-                schema_id=schema_id,
+                schema_id=schema.id,
                 schema_name=schema.name,
                 total_classes=len(schema.classes),
                 total_relationships=len(schema.relationships),
                 total_instances=total_instances,
-                total_data_relationships=total_data_rels,
+                total_data_relationships=total_data_relationships,
                 instances_by_class=instances_by_class
             )
             
