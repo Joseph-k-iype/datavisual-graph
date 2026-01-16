@@ -1,4 +1,4 @@
-# backend/app/services/data_loader.py
+# backend/app/services/data_loader.py - COMPLETE VERSION
 """
 Data Loader Service - Handles loading data from various formats
 Supports CSV, Excel, JSON, and XML
@@ -26,7 +26,7 @@ class DataLoaderService:
     
     @staticmethod
     def load_data(request: DataLoadRequest, file_content: bytes) -> DataLoadResponse:
-        """Load data from file into schema"""
+        """Load data from file into schema with proper relationship creation"""
         try:
             # Parse file based on format
             data_frames = DataLoaderService._parse_file(
@@ -111,7 +111,7 @@ class DataLoaderService:
                                 if col_mapping.source_column == class_mapping.primary_key:
                                     primary_key_value = source_value
                             
-                            # Create instance
+                            # Create instance with proper schema_id
                             instance_id = str(uuid.uuid4())
                             instance = DataInstance(
                                 id=instance_id,
@@ -136,17 +136,21 @@ class DataLoaderService:
                             error_msg = f"Failed to create instance for {schema_class.name} row {idx}: {str(e)}"
                             errors.append(error_msg)
                             logger.error(error_msg)
+                            logger.error(traceback.format_exc())
                     
                 except Exception as e:
                     error_msg = f"Failed to process class {class_mapping.class_id}: {str(e)}"
                     errors.append(error_msg)
                     logger.error(error_msg)
+                    logger.error(traceback.format_exc())
             
             logger.info(f"Created {instances_created} instances total")
+            logger.info(f"Instance map has {len(instance_map)} keys")
             
             # Create relationships if mappings provided
             if request.relationship_mappings:
                 logger.info(f"Processing {len(request.relationship_mappings)} relationship mappings")
+                
                 for rel_mapping in request.relationship_mappings:
                     try:
                         source_class_id = rel_mapping.get('source_class_id')
@@ -154,6 +158,11 @@ class DataLoaderService:
                         source_key_attr = rel_mapping.get('source_key_attribute')
                         target_key_attr = rel_mapping.get('target_key_attribute')
                         schema_rel_id = rel_mapping.get('schema_relationship_id')
+                        
+                        logger.info(
+                            f"Creating relationships: {source_class_id} -> {target_class_id} "
+                            f"via {source_key_attr} = {target_key_attr}"
+                        )
                         
                         # Find schema relationship
                         schema_rel = next(
@@ -165,7 +174,7 @@ class DataLoaderService:
                             errors.append(f"Schema relationship not found: {schema_rel_id}")
                             continue
                         
-                        # Get all instances of source class
+                        # Get all instances of source class using INSTANCE_OF relationship
                         source_instances_query = """
                         MATCH (c:SchemaClass {id: $class_id})<-[:INSTANCE_OF]-(i:DataInstance)
                         RETURN i
@@ -183,12 +192,32 @@ class DataLoaderService:
                                 source_key_value = source_data.get(source_key_attr)
                                 
                                 if source_key_value:
-                                    # Find target instance
+                                    # Find target instance using the instance map
                                     target_key = f"{target_class_id}:{source_key_value}"
                                     target_instance_id = instance_map.get(target_key)
                                     
+                                    if not target_instance_id:
+                                        # If not found in map, try querying for it
+                                        target_query = """
+                                        MATCH (c:SchemaClass {id: $class_id})<-[:INSTANCE_OF]-(i:DataInstance)
+                                        WHERE i.data CONTAINS $key_value
+                                        RETURN i
+                                        LIMIT 1
+                                        """
+                                        target_result = db.execute_query(
+                                            target_query,
+                                            {
+                                                'class_id': target_class_id,
+                                                'key_value': str(source_key_value)
+                                            }
+                                        )
+                                        
+                                        if target_result.result_set:
+                                            target_props = dict(target_result.result_set[0][0].properties)
+                                            target_instance_id = target_props.get('id')
+                                    
                                     if target_instance_id:
-                                        # Create relationship
+                                        # Create DATA_REL relationship
                                         rel = DataRelationship(
                                             id=str(uuid.uuid4()),
                                             schema_relationship_id=schema_rel_id,
@@ -197,11 +226,21 @@ class DataLoaderService:
                                         )
                                         SchemaService.create_data_relationship(rel)
                                         relationships_created += 1
+                                        logger.debug(
+                                            f"Created relationship: {source_props['id']} -> {target_instance_id}"
+                                        )
+                                    else:
+                                        logger.warning(
+                                            f"Target instance not found for key: {target_key}"
+                                        )
+                        else:
+                            logger.warning(f"No source instances found for class: {source_class_id}")
                         
                     except Exception as e:
                         error_msg = f"Failed to create relationships: {str(e)}"
                         errors.append(error_msg)
                         logger.error(error_msg)
+                        logger.error(traceback.format_exc())
             
             logger.info(
                 f"Data load completed: {instances_created} instances, "

@@ -1,20 +1,115 @@
-# backend/app/services/schema_service.py - OPTIMIZED VERSION
+# backend/app/services/schema_service.py - COMPLETE VERSION WITH ALL FEATURES
 
 from typing import List, Dict, Any, Optional
 from ..database import db
 from ..models.schemas import (
     SchemaDefinition, SchemaClass, SchemaRelationship,
     SchemaCreateRequest, LineageNode, LineageEdge,
-    LineageGraphResponse, LineagePathResponse, SchemaStats
+    LineageGraphResponse, LineagePathResponse, SchemaStats,
+    DataInstance, DataRelationship
 )
 import logging
+import json
+import uuid
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 
 class SchemaService:
-    """Service for schema operations - OPTIMIZED"""
+    """Service for schema operations - COMPLETE WITH ALL DEBUGGING"""
+    
+    @staticmethod
+    def create_data_instance(instance: DataInstance) -> bool:
+        """
+        Create a data instance node and link it to its schema class with INSTANCE_OF
+        
+        Relationship structure:
+        (DataInstance)-[:INSTANCE_OF]->(SchemaClass)
+        """
+        try:
+            # Get the schema_id from the class
+            class_query = """
+            MATCH (c:SchemaClass {id: $class_id})
+            RETURN c.schema_id as schema_id
+            """
+            class_result = db.execute_query(class_query, {'class_id': instance.class_id})
+            
+            if not class_result.result_set:
+                raise ValueError(f"Schema class not found: {instance.class_id}")
+            
+            schema_id = class_result.result_set[0][0]
+            
+            # Create data instance node and INSTANCE_OF relationship
+            instance_query = """
+            MATCH (c:SchemaClass {id: $class_id})
+            CREATE (i:DataInstance {
+                id: $id,
+                class_id: $class_id,
+                class_name: $class_name,
+                data: $data,
+                source_file: $source_file,
+                source_row: $source_row,
+                schema_id: $schema_id
+            })
+            CREATE (i)-[:INSTANCE_OF]->(c)
+            RETURN i
+            """
+            
+            db.execute_query(instance_query, {
+                'id': instance.id,
+                'class_id': instance.class_id,
+                'class_name': instance.class_name,
+                'data': json.dumps(instance.data),
+                'source_file': instance.source_file or '',
+                'source_row': instance.source_row or 0,
+                'schema_id': schema_id
+            })
+            
+            logger.info(f"✅ Created data instance: {instance.id} for class {instance.class_name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to create data instance: {str(e)}")
+            raise
+    
+    @staticmethod
+    def create_data_relationship(relationship: DataRelationship) -> bool:
+        """
+        Create a DATA_REL relationship between two data instances
+        
+        Relationship structure:
+        (DataInstance)-[:DATA_REL]->(DataInstance)
+        """
+        try:
+            rel_query = """
+            MATCH (source:DataInstance {id: $source_id})
+            MATCH (target:DataInstance {id: $target_id})
+            CREATE (source)-[r:DATA_REL {
+                id: $id,
+                schema_relationship_id: $schema_rel_id,
+                metadata: $metadata
+            }]->(target)
+            RETURN r
+            """
+            
+            db.execute_query(rel_query, {
+                'id': relationship.id,
+                'source_id': relationship.source_instance_id,
+                'target_id': relationship.target_instance_id,
+                'schema_rel_id': relationship.schema_relationship_id,
+                'metadata': json.dumps(relationship.metadata)
+            })
+            
+            logger.info(
+                f"✅ Created data relationship: {relationship.id} "
+                f"({relationship.source_instance_id} -> {relationship.target_instance_id})"
+            )
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to create data relationship: {str(e)}")
+            raise
     
     @staticmethod
     def get_lineage_graph(schema_id: str, expanded_classes: List[str] = None) -> LineageGraphResponse:
@@ -28,8 +123,6 @@ class SchemaService:
         - DataInstance -[DATA_REL]-> DataInstance
         """
         try:
-            import json
-            
             logger.info(f"🔍 Loading lineage graph for schema: {schema_id}")
             logger.info(f"📋 Expanded classes: {expanded_classes}")
             
@@ -212,28 +305,45 @@ class SchemaService:
                             inst_class_id = row[2] or class_id
                             inst_properties = row[3] or {}
                             
-                            # Parse the 'data' field if it exists and is a JSON string
+                            # CRITICAL: Extract and parse ONLY the 'data' field
                             actual_data = {}
-                            if isinstance(inst_properties, dict):
-                                if 'data' in inst_properties and isinstance(inst_properties['data'], str):
+                            
+                            if isinstance(inst_properties, dict) and 'data' in inst_properties:
+                                data_field = inst_properties.get('data')
+                                
+                                if isinstance(data_field, str):
                                     try:
-                                        actual_data = json.loads(inst_properties['data'])
-                                        logger.info(f"    Parsed JSON data: {actual_data}")
-                                    except json.JSONDecodeError:
-                                        logger.warning(f"    Failed to parse data JSON for {inst_id}")
-                                        actual_data = inst_properties
-                                else:
-                                    actual_data = inst_properties
+                                        actual_data = json.loads(data_field)
+                                        logger.info(f"    ✅ Parsed JSON data: {actual_data}")
+                                    except json.JSONDecodeError as e:
+                                        logger.error(f"    ❌ Failed to parse data JSON for {inst_id}: {e}")
+                                        actual_data = {}
+                                elif isinstance(data_field, dict):
+                                    actual_data = data_field
+                                    logger.info(f"    ✅ Data already parsed: {actual_data}")
+                            else:
+                                logger.warning(f"    ⚠️ No 'data' field found in properties for {inst_id}")
                             
-                            # Extract name from parsed data
-                            display_name = (
-                                actual_data.get('name') or 
-                                inst_name or 
-                                inst_id
-                            )
+                            # Extract name from the ACTUAL DATA
+                            display_name = actual_data.get('name')
                             
-                            logger.info(f"    Instance: {display_name} (ID: {inst_id})")
-                            logger.info(f"      Parsed Data: {actual_data}")
+                            if not display_name:
+                                for key in ['Name', 'title', 'Title', 'label', 'Label']:
+                                    if key in actual_data:
+                                        display_name = actual_data[key]
+                                        break
+                            
+                            if not display_name:
+                                for key, value in actual_data.items():
+                                    if isinstance(value, str) and 'id' not in key.lower() and len(value) > 0:
+                                        display_name = value
+                                        break
+                            
+                            if not display_name:
+                                display_name = inst_id
+                            
+                            logger.info(f"    📝 Instance: {display_name} (ID: {inst_id})")
+                            logger.info(f"    📊 Data attributes: {list(actual_data.keys())}")
                             
                             instances_data.append({
                                 'id': inst_id,
@@ -265,28 +375,45 @@ class SchemaService:
                             inst_class_id = row[2] or class_id
                             inst_properties = row[3] or {}
                             
-                            # Parse the 'data' field if it exists and is a JSON string
+                            # CRITICAL: Extract and parse ONLY the 'data' field
                             actual_data = {}
-                            if isinstance(inst_properties, dict):
-                                if 'data' in inst_properties and isinstance(inst_properties['data'], str):
+                            
+                            if isinstance(inst_properties, dict) and 'data' in inst_properties:
+                                data_field = inst_properties.get('data')
+                                
+                                if isinstance(data_field, str):
                                     try:
-                                        actual_data = json.loads(inst_properties['data'])
-                                        logger.info(f"    Parsed JSON data: {actual_data}")
-                                    except json.JSONDecodeError:
-                                        logger.warning(f"    Failed to parse data JSON for {inst_id}")
-                                        actual_data = inst_properties
-                                else:
-                                    actual_data = inst_properties
+                                        actual_data = json.loads(data_field)
+                                        logger.info(f"    ✅ Parsed JSON data: {actual_data}")
+                                    except json.JSONDecodeError as e:
+                                        logger.error(f"    ❌ Failed to parse data JSON for {inst_id}: {e}")
+                                        actual_data = {}
+                                elif isinstance(data_field, dict):
+                                    actual_data = data_field
+                                    logger.info(f"    ✅ Data already parsed: {actual_data}")
+                            else:
+                                logger.warning(f"    ⚠️ No 'data' field found in properties for {inst_id}")
                             
-                            # Extract name from parsed data
-                            display_name = (
-                                actual_data.get('name') or 
-                                inst_name or 
-                                inst_id
-                            )
+                            # Extract name from the ACTUAL DATA
+                            display_name = actual_data.get('name')
                             
-                            logger.info(f"    Instance: {display_name} (ID: {inst_id})")
-                            logger.info(f"      Parsed Data: {actual_data}")
+                            if not display_name:
+                                for key in ['Name', 'title', 'Title', 'label', 'Label']:
+                                    if key in actual_data:
+                                        display_name = actual_data[key]
+                                        break
+                            
+                            if not display_name:
+                                for key, value in actual_data.items():
+                                    if isinstance(value, str) and 'id' not in key.lower() and len(value) > 0:
+                                        display_name = value
+                                        break
+                            
+                            if not display_name:
+                                display_name = inst_id
+                            
+                            logger.info(f"    📝 Instance: {display_name} (ID: {inst_id})")
+                            logger.info(f"    📊 Data attributes: {list(actual_data.keys())}")
                             
                             instances_data.append({
                                 'id': inst_id,
@@ -362,9 +489,9 @@ class SchemaService:
                     MATCH (source:DataInstance)-[r:DATA_REL]->(target:DataInstance)
                     WHERE source.class_id = $class_id OR target.class_id = $class_id
                     RETURN r.id as id,
-                           r.source_id as source,
-                           r.target_id as target,
-                           r.source_class_id as parent_class
+                           source.id as source,
+                           target.id as target,
+                           source.class_id as parent_class
                     """
                     
                     data_rels_result = db.execute_query(data_rels_query, {'class_id': class_id})
@@ -497,12 +624,16 @@ class SchemaService:
                     logger.warning(f"  Skipping instance {inst_id} - parent {parent_id} not expanded")
                     continue
                 
-                # The data has already been parsed in the query sections above
+                # Get the parsed data (already cleaned of metadata)
                 parsed_data = inst_data.get('data', {})
                 display_name = inst_data.get('name', inst_id)
                 
-                logger.info(f"  ✅ Adding instance: {display_name} (ID: {inst_id}, parent: {parent_id})")
-                logger.info(f"      Final Data: {parsed_data}")
+                logger.info(f"  ✅ Adding instance node to graph:")
+                logger.info(f"      ID: {inst_id}")
+                logger.info(f"      Display Name: {display_name}")
+                logger.info(f"      Parent Class: {parent_id}")
+                logger.info(f"      Data Attributes: {list(parsed_data.keys())}")
+                logger.info(f"      Full Data: {parsed_data}")
                 
                 nodes.append(LineageNode(
                     id=inst_id,
@@ -512,7 +643,7 @@ class SchemaService:
                     parent_id=parent_id,
                     class_id=parent_id,
                     collapsed=False,
-                    data=parsed_data  # Already parsed data object
+                    data=parsed_data  # Clean data without metadata
                 ))
                 
                 # Add parent-child edge (INSTANCE_OF relationship)
@@ -646,9 +777,20 @@ class SchemaService:
                 'created_at': datetime.utcnow().isoformat()
             })
             
+            # CRITICAL: Map old request IDs to new generated IDs
+            class_id_mapping = {}  # old_id -> new_id
             classes = []
+            
             for cls_req in request.classes:
+                # Generate new class ID
                 class_id = f"{schema_id}_class_{cls_req.name.lower().replace(' ', '_')}"
+                
+                # Store mapping from request ID to generated ID
+                class_id_mapping[cls_req.id] = class_id
+                
+                logger.info(f"Creating class: {cls_req.name}")
+                logger.info(f"  Request ID: {cls_req.id}")
+                logger.info(f"  Generated ID: {class_id}")
                 
                 cls_query = """
                 MATCH (s:Schema {id: $schema_id})
@@ -681,9 +823,20 @@ class SchemaService:
                     icon=cls_req.icon
                 ))
             
+            logger.info(f"Class ID Mapping: {class_id_mapping}")
+            
+            # Create relationships using the mapped IDs
             relationships = []
             for rel_req in request.relationships:
                 rel_id = f"{schema_id}_rel_{len(relationships)}"
+                
+                # Map the request IDs to actual generated IDs
+                source_id = class_id_mapping.get(rel_req.source_class_id, rel_req.source_class_id)
+                target_id = class_id_mapping.get(rel_req.target_class_id, rel_req.target_class_id)
+                
+                logger.info(f"Creating relationship: {rel_req.name}")
+                logger.info(f"  Request Source ID: {rel_req.source_class_id} -> Mapped: {source_id}")
+                logger.info(f"  Request Target ID: {rel_req.target_class_id} -> Mapped: {target_id}")
                 
                 rel_query = """
                 MATCH (source:SchemaClass {id: $source_id})
@@ -698,23 +851,28 @@ class SchemaService:
                 RETURN r
                 """
                 
-                db.execute_query(rel_query, {
+                result = db.execute_query(rel_query, {
                     'id': rel_id,
-                    'source_id': rel_req.source_class_id,
-                    'target_id': rel_req.target_class_id,
+                    'source_id': source_id,
+                    'target_id': target_id,
                     'name': rel_req.name,
                     'cardinality': rel_req.cardinality
                 })
                 
+                if result.result_set:
+                    logger.info(f"✅ Successfully created relationship: {rel_req.name}")
+                else:
+                    logger.error(f"❌ Failed to create relationship: {rel_req.name}")
+                
                 relationships.append(SchemaRelationship(
                     id=rel_id,
-                    source_class_id=rel_req.source_class_id,
-                    target_class_id=rel_req.target_class_id,
+                    source_class_id=source_id,
+                    target_class_id=target_id,
                     name=rel_req.name,
                     cardinality=rel_req.cardinality
                 ))
             
-            logger.info(f"Created schema: {schema_id} with {len(classes)} classes and {len(relationships)} relationships")
+            logger.info(f"✅ Created schema: {schema_id} with {len(classes)} classes and {len(relationships)} relationships")
             
             return SchemaDefinition(
                 id=schema_id,
@@ -725,7 +883,9 @@ class SchemaService:
             )
             
         except Exception as e:
-            logger.error(f"Failed to create schema: {str(e)}")
+            logger.error(f"❌ Failed to create schema: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             raise
     
     @staticmethod
@@ -767,8 +927,6 @@ class SchemaService:
     def get_schema(schema_id: str) -> SchemaDefinition:
         """Get schema definition by ID"""
         try:
-            import json
-            
             query = """
             MATCH (s:Schema {id: $schema_id})
             OPTIONAL MATCH (s)-[:HAS_CLASS]->(c:SchemaClass)
@@ -848,6 +1006,23 @@ class SchemaService:
             logger.error(f"Failed to get schema: {str(e)}")
             import traceback
             logger.error(traceback.format_exc())
+            raise
+    
+    @staticmethod
+    def delete_schema(schema_id: str) -> bool:
+        """Delete a schema and all its data"""
+        try:
+            query = """
+            MATCH (s:Schema {id: $schema_id})-[:HAS_CLASS]->(c:SchemaClass)
+            OPTIONAL MATCH (c)<-[:INSTANCE_OF]-(i:DataInstance)
+            DETACH DELETE s, c, i
+            """
+            db.execute_query(query, {'schema_id': schema_id})
+            logger.info(f"Deleted schema: {schema_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to delete schema: {str(e)}")
             raise
     
     @staticmethod
