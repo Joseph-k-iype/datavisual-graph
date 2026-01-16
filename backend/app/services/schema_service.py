@@ -1,65 +1,660 @@
-# backend/app/services/schema_service.py - COMPLETE FIXED VERSION
+# backend/app/services/schema_service.py - OPTIMIZED VERSION
 
-from typing import List, Optional, Set, Dict, Any
+from typing import List, Dict, Any, Optional
 from ..database import db
 from ..models.schemas import (
     SchemaDefinition, SchemaClass, SchemaRelationship,
-    SchemaStats, LineageGraphResponse, LineageNode, LineageEdge,
-    LineagePathResponse
+    SchemaCreateRequest, LineageNode, LineageEdge,
+    LineageGraphResponse, LineagePathResponse, SchemaStats
 )
-import json
-import uuid
 import logging
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 
 class SchemaService:
-    """Service for schema operations"""
+    """Service for schema operations - OPTIMIZED"""
     
     @staticmethod
-    def create_schema(request) -> SchemaDefinition:
-        """Create a new schema"""
+    def get_lineage_graph(schema_id: str, expanded_classes: List[str] = None) -> LineageGraphResponse:
+        """
+        Get hierarchical lineage graph for a schema - FIXED FOR FALKORDB STRUCTURE
+        
+        FalkorDB Structure:
+        - Schema -[HAS_CLASS]-> SchemaClass
+        - SchemaClass -[SCHEMA_REL]-> SchemaClass (with properties: id, name, source_class_id, target_class_id, cardinality)
+        - DataInstance -[INSTANCE_OF]-> SchemaClass
+        - DataInstance -[DATA_REL]-> DataInstance
+        """
         try:
-            # Generate schema ID
-            schema_id = str(uuid.uuid4())
+            import json
             
-            # Create SchemaDefinition from request
-            schema = SchemaDefinition(
-                id=schema_id,
-                name=request.name,
-                description=request.description,
-                classes=request.classes,
-                relationships=request.relationships
+            logger.info(f"🔍 Loading lineage graph for schema: {schema_id}")
+            logger.info(f"📋 Expanded classes: {expanded_classes}")
+            
+            if expanded_classes is None:
+                expanded_classes = []
+            
+            # QUERY 1: Get schema, classes, and relationships
+            schema_query = """
+            MATCH (schema:Schema {id: $schema_id})
+            MATCH (schema)-[:HAS_CLASS]->(class:SchemaClass)
+            RETURN schema.name as schema_name,
+                   collect(DISTINCT {
+                       id: class.id,
+                       name: class.name,
+                       attributes: class.attributes,
+                       color: class.color,
+                       icon: class.icon
+                   }) as classes
+            """
+            
+            result = db.execute_query(schema_query, {'schema_id': schema_id})
+            
+            if not result.result_set or len(result.result_set) == 0:
+                logger.warning(f"Schema {schema_id} not found")
+                return LineageGraphResponse(
+                    schema_id=schema_id,
+                    schema_name="Unknown",
+                    nodes=[],
+                    edges=[],
+                    metadata={'total_nodes': 0, 'total_edges': 0}
+                )
+            
+            row = result.result_set[0]
+            schema_name = row[0]
+            classes_data = row[1]
+            
+            logger.info(f"📦 Retrieved {len(classes_data)} classes from schema")
+            
+            # DEBUG: Show what classes we have
+            for cls in classes_data:
+                logger.info(f"  Class: {cls.get('name')} (ID: {cls.get('id')})")
+            
+            # QUERY 2: Get ALL schema relationships (SCHEMA_REL edges)
+            # Find relationships between classes that belong to this schema
+            rels_query = """
+            MATCH (schema:Schema {id: $schema_id})-[:HAS_CLASS]->(source:SchemaClass)
+            MATCH (source)-[r:SCHEMA_REL]->(target:SchemaClass)
+            RETURN r.id as id,
+                   r.source_class_id as source_class_id,
+                   r.target_class_id as target_class_id,
+                   r.name as name,
+                   r.cardinality as cardinality,
+                   source.id as actual_source,
+                   target.id as actual_target
+            """
+            
+            logger.info(f"🔍 Executing relationship query...")
+            rels_result = db.execute_query(rels_query, {'schema_id': schema_id})
+            
+            schema_rels_data = []
+            if rels_result.result_set:
+                for row in rels_result.result_set:
+                    rel = {
+                        'id': row[0],
+                        'source_class_id': row[1],
+                        'target_class_id': row[2],
+                        'name': row[3],
+                        'cardinality': row[4],
+                        'actual_source': row[5],
+                        'actual_target': row[6]
+                    }
+                    logger.info(f"  Found SCHEMA_REL: {rel}")
+                    schema_rels_data.append(rel)
+            
+            logger.info(f"🔗 Retrieved {len(schema_rels_data)} schema relationships")
+            
+            # If no relationships found, try a simpler query to debug
+            if len(schema_rels_data) == 0:
+                logger.warning("⚠️ No relationships found with main query, trying fallback...")
+                fallback_query = """
+                MATCH ()-[r:SCHEMA_REL]->()
+                RETURN r.id as id,
+                       r.source_class_id as source_class_id,
+                       r.target_class_id as target_class_id,
+                       r.name as name,
+                       r.cardinality as cardinality
+                LIMIT 10
+                """
+                fallback_result = db.execute_query(fallback_query)
+                
+                if fallback_result.result_set:
+                    logger.info(f"Found {len(fallback_result.result_set)} SCHEMA_REL edges in database:")
+                    for row in fallback_result.result_set:
+                        logger.info(f"  Edge: {row[3]} from {row[1]} to {row[2]}")
+                else:
+                    logger.warning("  No SCHEMA_REL edges found in entire database!")
+            
+            # QUERY 3: Get instances for expanded classes
+            instances_data = []
+            if expanded_classes:
+                logger.info(f"📦 Loading instances for {len(expanded_classes)} expanded classes...")
+                
+                for class_id in expanded_classes:
+                    logger.info(f"  🔍 Querying instances for class: {class_id}")
+                    
+                    # Try multiple query patterns to find instances
+                    
+                    # Pattern 1: DataInstance -[:INSTANCE_OF]-> SchemaClass
+                    instances_query_1 = """
+                    MATCH (instance:DataInstance)-[:INSTANCE_OF]->(class:SchemaClass {id: $class_id})
+                    RETURN instance.id as id,
+                           instance.name as name,
+                           instance.class_id as class_id,
+                           properties(instance) as data
+                    """
+                    
+                    logger.info(f"  Trying Pattern 1: DataInstance -[:INSTANCE_OF]-> SchemaClass...")
+                    inst_result = db.execute_query(instances_query_1, {'class_id': class_id})
+                    
+                    if inst_result.result_set and len(inst_result.result_set) > 0:
+                        logger.info(f"  ✅ Pattern 1 worked! Found {len(inst_result.result_set)} instances")
+                        for row in inst_result.result_set:
+                            inst_id = row[0]
+                            inst_name = row[1]
+                            inst_class_id = row[2] or class_id
+                            inst_properties = row[3] or {}
+                            
+                            # Parse the 'data' field if it exists and is a string
+                            actual_data = {}
+                            if isinstance(inst_properties, dict):
+                                # If properties has a 'data' field that's a JSON string, parse it
+                                if 'data' in inst_properties and isinstance(inst_properties['data'], str):
+                                    try:
+                                        actual_data = json.loads(inst_properties['data'])
+                                        logger.info(f"    Parsed JSON data: {actual_data}")
+                                    except json.JSONDecodeError:
+                                        logger.warning(f"    Failed to parse data JSON for {inst_id}")
+                                        actual_data = inst_properties
+                                else:
+                                    # Use properties as-is
+                                    actual_data = inst_properties
+                            
+                            # Extract name from parsed data
+                            display_name = (
+                                actual_data.get('name') or 
+                                inst_name or 
+                                inst_id
+                            )
+                            
+                            logger.info(f"    Instance: {display_name} (ID: {inst_id})")
+                            logger.info(f"      Parsed Data: {actual_data}")
+                            
+                            instances_data.append({
+                                'id': inst_id,
+                                'name': display_name,
+                                'parent_id': inst_class_id,
+                                'data': actual_data  # Use parsed data
+                            })
+                        continue
+                    else:
+                        logger.info(f"  ❌ Pattern 1 found nothing")
+                    
+                    # Pattern 2: SchemaClass <-[:INSTANCE_OF]- DataInstance (reversed)
+                    instances_query_2 = """
+                    MATCH (class:SchemaClass {id: $class_id})<-[:INSTANCE_OF]-(instance:DataInstance)
+                    RETURN instance.id as id,
+                           instance.name as name,
+                           instance.class_id as class_id,
+                           properties(instance) as data
+                    """
+                    
+                    logger.info(f"  Trying Pattern 2: SchemaClass <-[:INSTANCE_OF]- DataInstance...")
+                    inst_result = db.execute_query(instances_query_2, {'class_id': class_id})
+                    
+                    if inst_result.result_set and len(inst_result.result_set) > 0:
+                        logger.info(f"  ✅ Pattern 2 worked! Found {len(inst_result.result_set)} instances")
+                        for row in inst_result.result_set:
+                            inst_id = row[0]
+                            inst_name = row[1]
+                            inst_class_id = row[2] or class_id
+                            inst_properties = row[3] or {}
+                            
+                            # Parse the 'data' field if it exists and is a JSON string
+                            actual_data = {}
+                            if isinstance(inst_properties, dict):
+                                if 'data' in inst_properties and isinstance(inst_properties['data'], str):
+                                    try:
+                                        actual_data = json.loads(inst_properties['data'])
+                                        logger.info(f"    Parsed JSON data: {actual_data}")
+                                    except json.JSONDecodeError:
+                                        logger.warning(f"    Failed to parse data JSON for {inst_id}")
+                                        actual_data = inst_properties
+                                else:
+                                    actual_data = inst_properties
+                            
+                            # Extract name from parsed data
+                            display_name = (
+                                actual_data.get('name') or 
+                                inst_name or 
+                                inst_id
+                            )
+                            
+                            logger.info(f"    Instance: {display_name} (ID: {inst_id})")
+                            logger.info(f"      Parsed Data: {actual_data}")
+                            
+                            instances_data.append({
+                                'id': inst_id,
+                                'name': display_name,
+                                'parent_id': inst_class_id,
+                                'data': actual_data
+                            })
+                        continue
+                    else:
+                        logger.info(f"  ❌ Pattern 2 found nothing")
+                    
+                    # Pattern 3: Match by class_id property
+                    instances_query_3 = """
+                    MATCH (instance:DataInstance {class_id: $class_id})
+                    RETURN instance.id as id,
+                           instance.name as name,
+                           instance.class_id as class_id,
+                           properties(instance) as data
+                    """
+                    
+                    logger.info(f"  Trying Pattern 3: DataInstance with class_id property...")
+                    inst_result = db.execute_query(instances_query_3, {'class_id': class_id})
+                    
+                    if inst_result.result_set and len(inst_result.result_set) > 0:
+                        logger.info(f"  ✅ Pattern 3 worked! Found {len(inst_result.result_set)} instances")
+                        for row in inst_result.result_set:
+                            inst_id = row[0]
+                            inst_name = row[1]
+                            inst_class_id = row[2] or class_id
+                            inst_properties = row[3] or {}
+                            
+                            # Parse the 'data' field if it exists and is a JSON string
+                            actual_data = {}
+                            if isinstance(inst_properties, dict):
+                                if 'data' in inst_properties and isinstance(inst_properties['data'], str):
+                                    try:
+                                        actual_data = json.loads(inst_properties['data'])
+                                        logger.info(f"    Parsed JSON data: {actual_data}")
+                                    except json.JSONDecodeError:
+                                        logger.warning(f"    Failed to parse data JSON for {inst_id}")
+                                        actual_data = inst_properties
+                                else:
+                                    actual_data = inst_properties
+                            
+                            # Extract name from parsed data
+                            display_name = (
+                                actual_data.get('name') or 
+                                inst_name or 
+                                inst_id
+                            )
+                            
+                            logger.info(f"    Instance: {display_name} (ID: {inst_id})")
+                            logger.info(f"      Parsed Data: {actual_data}")
+                            
+                            instances_data.append({
+                                'id': inst_id,
+                                'name': display_name,
+                                'parent_id': inst_class_id,
+                                'data': actual_data
+                            })
+                        continue
+                    else:
+                        logger.info(f"  ❌ Pattern 3 found nothing")
+                    
+                    # Pattern 4: Check what instances exist at all
+                    debug_query = """
+                    MATCH (instance:DataInstance)
+                    RETURN instance.id, instance.class_id, labels(instance), properties(instance)
+                    LIMIT 5
+                    """
+                    
+                    logger.info(f"  🔍 Debug: Checking ALL DataInstances in database...")
+                    debug_result = db.execute_query(debug_query)
+                    
+                    if debug_result.result_set:
+                        logger.info(f"  Found {len(debug_result.result_set)} DataInstance nodes:")
+                        for row in debug_result.result_set:
+                            logger.info(f"    - ID: {row[0]}, class_id: {row[1]}, labels: {row[2]}")
+                            logger.info(f"      Properties: {row[3]}")
+                    else:
+                        logger.warning(f"  ⚠️ NO DataInstance nodes found in database!")
+                    
+                    # Pattern 5: Check relationships FROM instances
+                    rel_debug_query = """
+                    MATCH (instance:DataInstance)-[r]->(target)
+                    RETURN instance.id, type(r), target.id, labels(target)
+                    LIMIT 10
+                    """
+                    
+                    logger.info(f"  🔍 Debug: Checking relationships FROM DataInstances...")
+                    rel_debug_result = db.execute_query(rel_debug_query)
+                    
+                    if rel_debug_result.result_set:
+                        logger.info(f"  Found {len(rel_debug_result.result_set)} relationships:")
+                        for row in rel_debug_result.result_set:
+                            logger.info(f"    - {row[0]} -[{row[1]}]-> {row[2]} ({row[3]})")
+                    else:
+                        logger.info(f"  No outgoing relationships from DataInstances")
+                    
+                    # Pattern 6: Check relationships TO instances
+                    rel_debug_query_2 = """
+                    MATCH (source)-[r]->(instance:DataInstance)
+                    RETURN source.id, type(r), instance.id, labels(source)
+                    LIMIT 10
+                    """
+                    
+                    logger.info(f"  🔍 Debug: Checking relationships TO DataInstances...")
+                    rel_debug_result_2 = db.execute_query(rel_debug_query_2)
+                    
+                    if rel_debug_result_2.result_set:
+                        logger.info(f"  Found {len(rel_debug_result_2.result_set)} relationships:")
+                        for row in rel_debug_result_2.result_set:
+                            logger.info(f"    - {row[0]} ({row[3]}) -[{row[1]}]-> {row[2]}")
+                    else:
+                        logger.info(f"  No incoming relationships to DataInstances")
+                
+                logger.info(f"📊 Total instances loaded: {len(instances_data)}")
+            else:
+                logger.info("📦 No expanded classes - skipping instance loading")
+            
+            # QUERY 4: Get data relationships for expanded classes
+            data_rels_data = []
+            if expanded_classes:
+                for class_id in expanded_classes:
+                    data_rels_query = """
+                    MATCH (source:DataInstance)-[r:DATA_REL]->(target:DataInstance)
+                    WHERE source.class_id = $class_id OR target.class_id = $class_id
+                    RETURN r.id as id,
+                           r.source_id as source,
+                           r.target_id as target,
+                           r.source_class_id as parent_class
+                    """
+                    
+                    data_rels_result = db.execute_query(data_rels_query, {'class_id': class_id})
+                    
+                    if data_rels_result.result_set:
+                        for row in data_rels_result.result_set:
+                            data_rels_data.append({
+                                'id': row[0],
+                                'source': row[1],
+                                'target': row[2],
+                                'parent_class': row[3]
+                            })
+                
+                logger.info(f"🔗 Retrieved {len(data_rels_data)} data relationships")
+            
+            # Process nodes and edges
+            nodes: List[LineageNode] = []
+            edges: List[LineageEdge] = []
+            
+            # Get instance counts for ALL classes (even if not expanded)
+            instance_counts = {}
+            logger.info(f"🔢 Counting instances for all classes...")
+            
+            for class_data in classes_data:
+                if not class_data or not class_data.get('id'):
+                    continue
+                    
+                class_id = class_data['id']
+                
+                # Try multiple patterns to count instances
+                count = 0
+                
+                # Pattern 1: DataInstance -[:INSTANCE_OF]-> SchemaClass
+                count_query_1 = """
+                MATCH (instance:DataInstance)-[:INSTANCE_OF]->(class:SchemaClass {id: $class_id})
+                RETURN count(instance) as count
+                """
+                count_result = db.execute_query(count_query_1, {'class_id': class_id})
+                
+                if count_result.result_set and count_result.result_set[0]:
+                    count = count_result.result_set[0][0]
+                
+                # If Pattern 1 found nothing, try Pattern 2
+                if count == 0:
+                    count_query_2 = """
+                    MATCH (class:SchemaClass {id: $class_id})<-[:INSTANCE_OF]-(instance:DataInstance)
+                    RETURN count(instance) as count
+                    """
+                    count_result = db.execute_query(count_query_2, {'class_id': class_id})
+                    
+                    if count_result.result_set and count_result.result_set[0]:
+                        count = count_result.result_set[0][0]
+                
+                # If still 0, try matching by class_id property
+                if count == 0:
+                    count_query_3 = """
+                    MATCH (instance:DataInstance {class_id: $class_id})
+                    RETURN count(instance) as count
+                    """
+                    count_result = db.execute_query(count_query_3, {'class_id': class_id})
+                    
+                    if count_result.result_set and count_result.result_set[0]:
+                        count = count_result.result_set[0][0]
+                
+                instance_counts[class_id] = count
+                logger.info(f"  Class {class_data.get('name')} ({class_id}): {count} instances")
+            
+            logger.info(f"📊 Instance counts: {instance_counts}")
+            
+            # Process schema classes
+            valid_class_ids = set()
+            class_id_map = {}  # Map both stored ID and actual ID
+            
+            for class_data in classes_data:
+                if not class_data or not class_data.get('id'):
+                    continue
+                
+                class_id = class_data['id']
+                valid_class_ids.add(class_id)
+                class_id_map[class_id] = class_id
+                
+                # Get instance count from our pre-calculated counts
+                instance_count = instance_counts.get(class_id, 0)
+                
+                is_expanded = class_id in expanded_classes
+                
+                # Parse attributes - handle both string and list
+                attributes = class_data.get('attributes', [])
+                if isinstance(attributes, str):
+                    try:
+                        attributes = json.loads(attributes)
+                    except json.JSONDecodeError:
+                        logger.warning(f"Failed to parse attributes for class {class_id}")
+                        attributes = []
+                elif not isinstance(attributes, list):
+                    attributes = []
+                
+                nodes.append(LineageNode(
+                    id=class_id,
+                    type='schema_class',
+                    name=class_data.get('name', 'Unnamed'),
+                    schema_id=schema_id,
+                    class_id=class_id,
+                    collapsed=not is_expanded,
+                    data={
+                        'instance_count': instance_count,
+                        'attributes': attributes,
+                        'color': class_data.get('color', '#6B7280'),
+                        'icon': class_data.get('icon', 'Box'),
+                    }
+                ))
+                
+                logger.info(f"  ✅ Class: {class_data.get('name')} ({class_id}) - "
+                          f"{instance_count} instances, expanded={is_expanded}")
+            
+            logger.info(f"Valid class IDs: {valid_class_ids}")
+            
+            # Process data instances (only for expanded classes)
+            logger.info(f"🔄 Processing {len(instances_data)} instances...")
+            for inst_data in instances_data:
+                if not inst_data or not inst_data.get('id'):
+                    logger.warning("  Skipping instance with no ID")
+                    continue
+                
+                parent_id = inst_data.get('parent_id')
+                inst_id = inst_data['id']
+                
+                # Only include instances for expanded classes
+                if parent_id not in expanded_classes:
+                    logger.warning(f"  Skipping instance {inst_id} - parent {parent_id} not expanded")
+                    continue
+                
+                # The data has already been parsed in the query sections above
+                parsed_data = inst_data.get('data', {})
+                display_name = inst_data.get('name', inst_id)
+                
+                logger.info(f"  ✅ Adding instance: {display_name} (ID: {inst_id}, parent: {parent_id})")
+                logger.info(f"      Final Data: {parsed_data}")
+                
+                nodes.append(LineageNode(
+                    id=inst_id,
+                    type='data_instance',
+                    name=display_name,
+                    schema_id=schema_id,
+                    parent_id=parent_id,
+                    class_id=parent_id,
+                    collapsed=False,
+                    data=parsed_data  # Already parsed data object
+                ))
+                
+                # Add parent-child edge (INSTANCE_OF relationship)
+                parent_child_edge_id = f"parent_{parent_id}_{inst_id}"
+                
+                logger.info(f"  ✅ Adding parent-child edge: {parent_child_edge_id}")
+                
+                edges.append(LineageEdge(
+                    id=parent_child_edge_id,
+                    source=parent_id,
+                    target=inst_id,
+                    type='parent_child',
+                    label='instance of'
+                ))
+            
+            # Process schema relationships (SCHEMA_REL edges)
+            logger.info(f"🔗 Processing {len(schema_rels_data)} SCHEMA_REL relationships...")
+            for rel_data in schema_rels_data:
+                if not rel_data or not rel_data.get('id'):
+                    logger.warning(f"  ⚠️ Skipping null/invalid relationship")
+                    continue
+                
+                # Try both the stored IDs and actual IDs
+                source_id = rel_data.get('source_class_id') or rel_data.get('actual_source')
+                target_id = rel_data.get('target_class_id') or rel_data.get('actual_target')
+                
+                logger.info(f"  Checking SCHEMA_REL: {rel_data.get('name')}")
+                logger.info(f"    ID: {rel_data.get('id')}")
+                logger.info(f"    Source: {source_id}")
+                logger.info(f"    Target: {target_id}")
+                logger.info(f"    Valid classes: {valid_class_ids}")
+                
+                # Check if both classes exist in our valid set
+                if source_id not in valid_class_ids:
+                    logger.warning(f"    ⚠️ Source class {source_id} not in valid classes")
+                    # Try the actual source
+                    source_id = rel_data.get('actual_source')
+                    if source_id not in valid_class_ids:
+                        logger.warning(f"    ⚠️ Actual source {source_id} also not in valid classes")
+                        continue
+                    
+                if target_id not in valid_class_ids:
+                    logger.warning(f"    ⚠️ Target class {target_id} not in valid classes")
+                    # Try the actual target
+                    target_id = rel_data.get('actual_target')
+                    if target_id not in valid_class_ids:
+                        logger.warning(f"    ⚠️ Actual target {target_id} also not in valid classes")
+                        continue
+                
+                logger.info(f"  ✅ Adding SCHEMA_REL edge: {rel_data.get('name')} ({source_id} → {target_id})")
+                
+                edges.append(LineageEdge(
+                    id=rel_data['id'],
+                    source=source_id,
+                    target=target_id,
+                    type='schema_relationship',
+                    label=rel_data.get('name', 'related to'),
+                    data={'cardinality': rel_data.get('cardinality')}
+                ))
+            
+            # Process data relationships (only for expanded classes)
+            for rel_data in data_rels_data:
+                if not rel_data or not rel_data.get('id'):
+                    continue
+                
+                parent_class = rel_data.get('parent_class')
+                
+                # Only include if parent class is expanded
+                if parent_class not in expanded_classes:
+                    continue
+                
+                edges.append(LineageEdge(
+                    id=rel_data['id'],
+                    source=rel_data.get('source'),
+                    target=rel_data.get('target'),
+                    type='data_relationship',
+                    label='related to'
+                ))
+            
+            logger.info(f"✅ Final graph: {len(nodes)} nodes, {len(edges)} edges")
+            logger.info(f"   Schema relationships (edges): {len([e for e in edges if e.type == 'schema_relationship'])}")
+            logger.info(f"   Parent-child (edges): {len([e for e in edges if e.type == 'parent_child'])}")
+            logger.info(f"   Data relationships (edges): {len([e for e in edges if e.type == 'data_relationship'])}")
+            
+            return LineageGraphResponse(
+                schema_id=schema_id,
+                schema_name=schema_name,
+                nodes=nodes,
+                edges=edges,
+                metadata={
+                    'total_nodes': len(nodes),
+                    'total_edges': len(edges),
+                    'expanded_classes': expanded_classes,
+                    'generated_at': datetime.utcnow().isoformat()
+                }
             )
             
-            # Create schema node in database
-            schema_query = """
+        except Exception as e:
+            logger.error(f"Failed to get lineage graph: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            # Return empty graph instead of raising
+            return LineageGraphResponse(
+                schema_id=schema_id,
+                schema_name="Error",
+                nodes=[],
+                edges=[],
+                metadata={'error': str(e)}
+            )
+    
+    @staticmethod
+    def create_schema(request: SchemaCreateRequest) -> SchemaDefinition:
+        """Create a new schema definition"""
+        try:
+            schema_id = f"schema_{request.name.lower().replace(' ', '_')}_{int(datetime.utcnow().timestamp())}"
+            
+            query = """
             CREATE (s:Schema {
                 id: $id,
                 name: $name,
                 description: $description,
-                version: $version,
-                created_at: datetime(),
-                updated_at: datetime()
+                created_at: $created_at
             })
             RETURN s
             """
-            db.execute_query(schema_query, {
-                'id': schema.id,
-                'name': schema.name,
-                'description': schema.description or '',
-                'version': schema.version
+            
+            db.execute_query(query, {
+                'id': schema_id,
+                'name': request.name,
+                'description': request.description or '',
+                'created_at': datetime.utcnow().isoformat()
             })
             
-            # Create schema class nodes with correct HAS_CLASS relationship
-            for cls in schema.classes:
-                class_query = """
+            classes = []
+            for cls_req in request.classes:
+                class_id = f"{schema_id}_class_{cls_req.name.lower().replace(' ', '_')}"
+                
+                cls_query = """
                 MATCH (s:Schema {id: $schema_id})
                 CREATE (c:SchemaClass {
                     id: $id,
                     name: $name,
-                    description: $description,
                     attributes: $attributes,
                     color: $color,
                     icon: $icon,
@@ -68,137 +663,186 @@ class SchemaService:
                 CREATE (s)-[:HAS_CLASS]->(c)
                 RETURN c
                 """
-                db.execute_query(class_query, {
-                    'schema_id': schema.id,
-                    'id': cls.id,
-                    'name': cls.name,
-                    'description': cls.description or '',
-                    'attributes': json.dumps(cls.attributes),
-                    'color': cls.color or '#6B7280',
-                    'icon': cls.icon or 'Box'
+                
+                db.execute_query(cls_query, {
+                    'id': class_id,
+                    'schema_id': schema_id,
+                    'name': cls_req.name,
+                    'attributes': cls_req.attributes,
+                    'color': cls_req.color or '#6B7280',
+                    'icon': cls_req.icon or 'Box'
                 })
+                
+                classes.append(SchemaClass(
+                    id=class_id,
+                    name=cls_req.name,
+                    attributes=cls_req.attributes,
+                    color=cls_req.color,
+                    icon=cls_req.icon
+                ))
             
-            # Create schema relationship edges
-            for rel in schema.relationships:
+            relationships = []
+            for rel_req in request.relationships:
+                rel_id = f"{schema_id}_rel_{len(relationships)}"
+                
                 rel_query = """
                 MATCH (source:SchemaClass {id: $source_id})
                 MATCH (target:SchemaClass {id: $target_id})
                 CREATE (source)-[r:SCHEMA_REL {
                     id: $id,
+                    source_class_id: $source_id,
+                    target_class_id: $target_id,
                     name: $name,
-                    description: $description,
                     cardinality: $cardinality
                 }]->(target)
                 RETURN r
                 """
+                
                 db.execute_query(rel_query, {
-                    'id': rel.id,
-                    'source_id': rel.source_class_id,
-                    'target_id': rel.target_class_id,
-                    'name': rel.name,
-                    'description': rel.description or '',
-                    'cardinality': rel.cardinality
+                    'id': rel_id,
+                    'source_id': rel_req.source_class_id,
+                    'target_id': rel_req.target_class_id,
+                    'name': rel_req.name,
+                    'cardinality': rel_req.cardinality
                 })
+                
+                relationships.append(SchemaRelationship(
+                    id=rel_id,
+                    source_class_id=rel_req.source_class_id,
+                    target_class_id=rel_req.target_class_id,
+                    name=rel_req.name,
+                    cardinality=rel_req.cardinality
+                ))
             
-            logger.info(f"Created schema: {schema.id} with {len(schema.classes)} classes and {len(schema.relationships)} relationships")
-            return schema
+            logger.info(f"Created schema: {schema_id} with {len(classes)} classes and {len(relationships)} relationships")
+            
+            return SchemaDefinition(
+                id=schema_id,
+                name=request.name,
+                description=request.description,
+                classes=classes,
+                relationships=relationships
+            )
             
         except Exception as e:
             logger.error(f"Failed to create schema: {str(e)}")
             raise
     
     @staticmethod
-    def get_schema(schema_id: str) -> Optional[SchemaDefinition]:
-        """Get schema by ID"""
+    def list_schemas() -> List[Dict[str, Any]]:
+        """List all schemas with basic info"""
         try:
-            # Get schema node
-            schema_query = """
-            MATCH (s:Schema {id: $schema_id})
-            RETURN s
+            query = """
+            MATCH (s:Schema)
+            OPTIONAL MATCH (s)-[:HAS_CLASS]->(c:SchemaClass)
+            OPTIONAL MATCH (c)<-[:INSTANCE_OF]-(i:DataInstance)
+            RETURN s.id as id, s.name as name, s.description as description,
+                   s.created_at as created_at,
+                   count(DISTINCT c) as class_count,
+                   count(DISTINCT i) as instance_count
+            ORDER BY s.created_at DESC
             """
             
-            result = db.execute_query(schema_query, {'schema_id': schema_id})
+            result = db.execute_query(query)
+            
+            schemas = []
+            if result.result_set:
+                for row in result.result_set:
+                    schemas.append({
+                        'id': row[0],
+                        'name': row[1],
+                        'description': row[2] or '',
+                        'class_count': row[4],
+                        'instance_count': row[5]
+                    })
+            
+            logger.info(f"Found {len(schemas)} schemas")
+            return schemas
+            
+        except Exception as e:
+            logger.error(f"Failed to list schemas: {str(e)}")
+            raise
+    
+    @staticmethod
+    def get_schema(schema_id: str) -> SchemaDefinition:
+        """Get schema definition by ID"""
+        try:
+            import json
+            
+            query = """
+            MATCH (s:Schema {id: $schema_id})
+            OPTIONAL MATCH (s)-[:HAS_CLASS]->(c:SchemaClass)
+            OPTIONAL MATCH (c)-[r:SCHEMA_REL]->(target:SchemaClass)
+            WHERE r.source_class_id IS NOT NULL
+            RETURN s, 
+                   collect(DISTINCT c) as classes, 
+                   collect(DISTINCT {
+                       id: r.id,
+                       source_class_id: r.source_class_id,
+                       target_class_id: r.target_class_id,
+                       name: r.name,
+                       cardinality: r.cardinality
+                   }) as relationships
+            """
+            
+            result = db.execute_query(query, {'schema_id': schema_id})
             
             if not result.result_set:
-                logger.warning(f"Schema {schema_id} not found")
-                return None
+                raise ValueError(f"Schema {schema_id} not found")
             
-            schema_node = result.result_set[0][0]
-            schema_props = dict(schema_node.properties)
-            
-            logger.info(f"Found schema: {schema_props.get('name')}")
-            
-            # Get classes using HAS_CLASS relationship
-            classes_query = """
-            MATCH (s:Schema {id: $schema_id})-[:HAS_CLASS]->(c:SchemaClass)
-            RETURN c
-            """
-            
-            classes_result = db.execute_query(classes_query, {'schema_id': schema_id})
+            row = result.result_set[0]
+            schema_props = dict(row[0].properties)
+            classes_nodes = row[1]
+            rel_data = row[2]
             
             classes = []
-            if classes_result.result_set:
-                logger.info(f"Found {len(classes_result.result_set)} classes in database")
-                for row in classes_result.result_set:
-                    cls = row[0]
-                    cls_props = dict(cls.properties)
-                    logger.info(f"  - Class: {cls_props.get('name')} (ID: {cls_props.get('id')})")
+            for cls_node in classes_nodes:
+                if cls_node:
+                    cls_props = dict(cls_node.properties)
+                    
+                    # Parse attributes - handle both string and list
+                    attributes = cls_props.get('attributes', [])
+                    if isinstance(attributes, str):
+                        try:
+                            attributes = json.loads(attributes)
+                        except json.JSONDecodeError:
+                            logger.warning(f"Failed to parse attributes for class {cls_props.get('id')}")
+                            attributes = []
+                    elif not isinstance(attributes, list):
+                        attributes = []
                     
                     classes.append(SchemaClass(
                         id=cls_props['id'],
                         name=cls_props['name'],
-                        description=cls_props.get('description', ''),
-                        attributes=json.loads(cls_props.get('attributes', '[]')),
-                        color=cls_props.get('color', '#6B7280'),
-                        icon=cls_props.get('icon', 'Box')
+                        attributes=attributes,
+                        color=cls_props.get('color'),
+                        icon=cls_props.get('icon')
                     ))
-            else:
-                logger.warning(f"No classes found for schema {schema_id}")
-            
-            # Get relationships
-            rels_query = """
-            MATCH (source:SchemaClass {schema_id: $schema_id})-[r:SCHEMA_REL]->(target:SchemaClass {schema_id: $schema_id})
-            RETURN r, source.id, target.id
-            """
-            
-            rels_result = db.execute_query(rels_query, {'schema_id': schema_id})
             
             relationships = []
-            if rels_result.result_set:
-                logger.info(f"Found {len(rels_result.result_set)} relationships")
-                for row in rels_result.result_set:
-                    rel = row[0]
-                    rel_props = dict(rel.properties)
-                    source_id = row[1]
-                    target_id = row[2]
-                    
-                    logger.info(f"  - Relationship: {rel_props.get('name')} ({source_id} -> {target_id})")
-                    
-                    relationships.append(SchemaRelationship(
-                        id=rel_props['id'],
-                        name=rel_props['name'],
-                        description=rel_props.get('description', ''),
-                        source_class_id=source_id,
-                        target_class_id=target_id,
-                        cardinality=rel_props.get('cardinality', 'one_to_many')
-                    ))
-            else:
-                logger.warning(f"No relationships found for schema {schema_id}")
+            for rel in rel_data:
+                if rel and rel.get('id'):
+                    try:
+                        relationships.append(SchemaRelationship(
+                            id=rel['id'],
+                            source_class_id=rel['source_class_id'],
+                            target_class_id=rel['target_class_id'],
+                            name=rel['name'],
+                            cardinality=rel['cardinality']
+                        ))
+                    except KeyError as e:
+                        logger.warning(f"Skipping relationship with missing field: {e}")
+                        continue
             
-            schema = SchemaDefinition(
+            logger.info(f"Loaded schema {schema_id}: {len(classes)} classes, {len(relationships)} relationships")
+            
+            return SchemaDefinition(
                 id=schema_props['id'],
                 name=schema_props['name'],
                 description=schema_props.get('description', ''),
-                version=schema_props.get('version', '1.0.0'),
                 classes=classes,
-                relationships=relationships,
-                created_at=schema_props.get('created_at'),
-                updated_at=schema_props.get('updated_at')
+                relationships=relationships
             )
-            
-            logger.info(f"Returning schema with {len(classes)} classes and {len(relationships)} relationships")
-            
-            return schema
             
         except Exception as e:
             logger.error(f"Failed to get schema: {str(e)}")
@@ -207,288 +851,121 @@ class SchemaService:
             raise
     
     @staticmethod
-    def list_schemas() -> List[Dict[str, Any]]:
-        """List all schemas - returns dict format for API response"""
+    def get_schema_stats(schema_id: str) -> SchemaStats:
+        """Get statistics for a schema"""
         try:
             query = """
-            MATCH (s:Schema)
-            RETURN s
-            ORDER BY s.created_at DESC
-            """
-            result = db.execute_query(query)
-            
-            schemas = []
-            if result.result_set:
-                for row in result.result_set:
-                    schema_node = row[0]
-                    schema_props = dict(schema_node.properties)
-                    # Return as dictionary for API serialization
-                    schemas.append({
-                        'id': schema_props['id'],
-                        'name': schema_props['name'],
-                        'description': schema_props.get('description', ''),
-                        'version': schema_props.get('version', '1.0.0'),
-                        'created_at': schema_props.get('created_at'),
-                        'updated_at': schema_props.get('updated_at'),
-                        'class_count': 0,  # Will be populated below
-                        'classes': [],
-                        'relationships': [],
-                        'metadata': {}
-                    })
-            
-            return schemas
-            
-        except Exception as e:
-            logger.error(f"Failed to list schemas: {str(e)}")
-            raise
-    
-    @staticmethod
-    def delete_schema(schema_id: str) -> bool:
-        """Delete a schema and all its data"""
-        try:
-            query = """
-            MATCH (s:Schema {id: $schema_id})-[:HAS_CLASS]->(c:SchemaClass)
+            MATCH (s:Schema {id: $schema_id})
+            OPTIONAL MATCH (s)-[:HAS_CLASS]->(c:SchemaClass)
+            OPTIONAL MATCH (c)-[sr:SCHEMA_REL]->()
             OPTIONAL MATCH (c)<-[:INSTANCE_OF]-(i:DataInstance)
-            DETACH DELETE s, c, i
+            OPTIONAL MATCH (i)-[dr:DATA_REL]->()
+            RETURN s.name as name,
+                   count(DISTINCT c) as total_classes,
+                   count(DISTINCT sr) as total_relationships,
+                   count(DISTINCT i) as total_instances,
+                   count(DISTINCT dr) as total_data_relationships
             """
-            db.execute_query(query, {'schema_id': schema_id})
-            logger.info(f"Deleted schema: {schema_id}")
-            return True
             
-        except Exception as e:
-            logger.error(f"Failed to delete schema: {str(e)}")
-            raise
-    
-    @staticmethod
-    def get_lineage_graph(schema_id: str, expanded_classes: List[str] = []) -> LineageGraphResponse:
-        """Get hierarchical lineage graph"""
-        try:
-            schema = SchemaService.get_schema(schema_id)
-            if not schema:
-                raise ValueError(f"Schema not found: {schema_id}")
+            result = db.execute_query(query, {'schema_id': schema_id})
             
-            nodes = []
-            edges = []
+            if not result.result_set:
+                raise ValueError(f"Schema {schema_id} not found")
             
-            # Add schema class nodes
-            for cls in schema.classes:
-                class_id = cls.id
-                is_expanded = class_id in expanded_classes
-                
-                # Count instances
-                instances_query = """
-                MATCH (c:SchemaClass {id: $class_id})<-[:INSTANCE_OF]-(i:DataInstance)
-                RETURN COUNT(i) as count
-                """
-                instances_result = db.execute_query(instances_query, {'class_id': class_id})
-                instance_count = instances_result.result_set[0][0] if instances_result.result_set else 0
-                
-                nodes.append(LineageNode(
-                    id=class_id,
-                    type='schema_class',
-                    name=cls.name,
-                    schema_id=schema_id,
-                    class_id=class_id,
-                    data={
-                        'description': cls.description,
-                        'attributes': cls.attributes,
-                        'color': cls.color,
-                        'icon': cls.icon,
-                        'instance_count': instance_count,
-                        'collapsed': not is_expanded
-                    }
-                ))
-                
-                # If expanded, add ALL data instances (no limit)
-                if is_expanded and instance_count > 0:
-                    instances_query = """
-                    MATCH (c:SchemaClass {id: $class_id})<-[:INSTANCE_OF]-(i:DataInstance)
-                    RETURN i
-                    """
-                    instances_result = db.execute_query(instances_query, {'class_id': class_id})
-                    
-                    if instances_result.result_set:
-                        for row in instances_result.result_set:
-                            inst = row[0]
-                            inst_props = dict(inst.properties)
-                            inst_data = json.loads(inst_props.get('data', '{}'))
-                            
-                            nodes.append(LineageNode(
-                                id=inst_props['id'],
-                                type='data_instance',
-                                name=inst_data.get('name', inst_props['id']),
-                                schema_id=schema_id,
-                                class_id=class_id,
-                                parent_id=class_id,
-                                data=inst_data
-                            ))
-                            
-                            # Parent-child edge
-                            edges.append(LineageEdge(
-                                id=f"parent_{class_id}_{inst_props['id']}",
-                                source=class_id,
-                                target=inst_props['id'],
-                                type='parent_child',
-                                label='instance of'
-                            ))
-                    
-                    # Get data relationships for this class
-                    data_rels_query = """
-                    MATCH (c:SchemaClass {id: $class_id})<-[:INSTANCE_OF]-(source:DataInstance)
-                    MATCH (source)-[r:DATA_REL]->(target:DataInstance)
-                    RETURN r, source.id, target.id
-                    """
-                    data_rels_result = db.execute_query(data_rels_query, {'class_id': class_id})
-                    
-                    if data_rels_result.result_set:
-                        for row in data_rels_result.result_set:
-                            rel_props = dict(row[0].properties)
-                            source_id = row[1]
-                            target_id = row[2]
-                            
-                            edges.append(LineageEdge(
-                                id=rel_props['id'],
-                                source=source_id,
-                                target=target_id,
-                                type='data_relationship',
-                                label='related to'
-                            ))
+            row = result.result_set[0]
             
-            # Add schema relationship edges
-            for rel in schema.relationships:
-                edges.append(LineageEdge(
-                    id=rel.id,
-                    source=rel.source_class_id,
-                    target=rel.target_class_id,
-                    type='schema_relationship',
-                    label=rel.name,
-                    data={'cardinality': rel.cardinality}
-                ))
-            
-            return LineageGraphResponse(
+            return SchemaStats(
                 schema_id=schema_id,
-                schema_name=schema.name,
-                nodes=nodes,
-                edges=edges,
-                metadata={'total_nodes': len(nodes), 'total_edges': len(edges)}
+                schema_name=row[0],
+                total_classes=row[1],
+                total_relationships=row[2],
+                total_instances=row[3],
+                total_data_relationships=row[4],
+                instances_by_class={}
             )
             
         except Exception as e:
-            logger.error(f"Failed to get lineage graph: {str(e)}")
+            logger.error(f"Failed to get schema stats: {str(e)}")
             raise
     
     @staticmethod
-    def get_all_paths_between_nodes(schema_id: str, node_ids: List[str], max_depth: int = 10) -> LineagePathResponse:
-        """
-        Find ALL paths between multiple nodes - FIXED VERSION
-        
-        For 2 nodes: finds all paths between them
-        For 3+ nodes: finds ALL paths between ALL PAIRS of selected nodes (not just consecutive)
-        
-        This ensures that selecting node1 and node3 finds paths between those two,
-        not paths that go through other selected nodes.
-        """
+    def get_lineage_path(schema_id: str, start_node_id: str, end_node_id: Optional[str] = None, max_depth: int = 10) -> LineagePathResponse:
+        """Get lineage path - simplified version"""
         try:
-            if len(node_ids) < 2:
-                logger.warning("Need at least 2 nodes for path finding")
-                return LineagePathResponse(
-                    paths=[],
-                    highlighted_nodes=node_ids,
-                    highlighted_edges=[]
-                )
+            # Basic path finding implementation
+            if end_node_id:
+                query = """
+                MATCH path = shortestPath((start {id: $start_id})-[*1..10]-(end {id: $end_id}))
+                RETURN [node IN nodes(path) | node.id] as path
+                """
+                result = db.execute_query(query, {
+                    'start_id': start_node_id,
+                    'end_id': end_node_id
+                })
+                
+                if result.result_set and result.result_set[0]:
+                    path = result.result_set[0][0]
+                    return LineagePathResponse(
+                        paths=[path],
+                        highlighted_nodes=path,
+                        highlighted_edges=[]
+                    )
             
+            return LineagePathResponse(
+                paths=[],
+                highlighted_nodes=[start_node_id],
+                highlighted_edges=[]
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to get lineage path: {str(e)}")
+            return LineagePathResponse(
+                paths=[],
+                highlighted_nodes=[],
+                highlighted_edges=[]
+            )
+    
+    @staticmethod
+    def get_shortest_path(schema_id: str, node_ids: List[str]) -> LineagePathResponse:
+        """Find shortest path - delegates to all paths for now"""
+        return SchemaService.get_all_paths_between_nodes(schema_id, node_ids, max_depth=10)
+    
+    @staticmethod
+    def get_all_paths_between_nodes(schema_id: str, node_ids: List[str], max_depth: int = 10) -> LineagePathResponse:
+        """Find all paths between multiple nodes"""
+        try:
             all_paths = []
             all_nodes = set(node_ids)
             all_edges = set()
             
-            # For 2 nodes, find all paths between them
-            if len(node_ids) == 2:
-                start_id = node_ids[0]
-                end_id = node_ids[1]
-                
-                logger.info(f"Finding paths between {start_id} and {end_id}")
-                
-                # Try bidirectional paths - NO LIMIT to get all actual paths
-                query = f"""
-                MATCH (start {{id: $start_id}})
-                MATCH (end {{id: $end_id}})
-                MATCH path = (start)-[*1..{max_depth}]-(end)
-                WITH path, nodes(path) as node_list, relationships(path) as rel_list
-                RETURN 
-                    [n IN node_list | n.id] as node_ids,
-                    [i IN range(0, size(rel_list)-1) | {{
-                        rel_id: rel_list[i].id,
-                        source: node_list[i].id,
-                        target: node_list[i+1].id,
-                        type: type(rel_list[i])
-                    }}] as edge_info
-                """
-                
-                result = db.execute_query(query, {
-                    'start_id': start_id,
-                    'end_id': end_id
-                })
-                
-                if result.result_set:
-                    for row in result.result_set:
-                        node_path = row[0] if row[0] else []
-                        edge_info_list = row[1] if row[1] else []
-                        
-                        if node_path:
+            # Find paths between all pairs
+            for i in range(len(node_ids)):
+                for j in range(i + 1, len(node_ids)):
+                    start_id = node_ids[i]
+                    end_id = node_ids[j]
+                    
+                    query = """
+                    MATCH path = (start {id: $start_id})-[*1..5]-(end {id: $end_id})
+                    WHERE ALL(node IN nodes(path) WHERE 
+                        node:SchemaClass OR node:DataInstance)
+                    RETURN [node IN nodes(path) | node.id] as node_path,
+                           [rel IN relationships(path) | rel.id] as edge_path
+                    LIMIT 10
+                    """
+                    
+                    result = db.execute_query(query, {
+                        'start_id': start_id,
+                        'end_id': end_id
+                    })
+                    
+                    if result.result_set:
+                        for row in result.result_set:
+                            node_path = row[0]
+                            edge_path = row[1]
+                            
                             all_paths.append(node_path)
                             all_nodes.update(node_path)
-                            
-                            # Collect edge IDs with proper formatting
-                            for edge_info in edge_info_list:
-                                rel_id = edge_info.get('rel_id')
-                                source = edge_info.get('source')
-                                target = edge_info.get('target')
-                                rel_type = edge_info.get('type')
-                                
-                                # Match the edge ID format used in get_lineage_graph
-                                if rel_type == 'INSTANCE_OF':
-                                    # Parent-child relationship: parent_{class_id}_{instance_id}
-                                    edge_id = f"parent_{source}_{target}"
-                                    all_edges.add(edge_id)
-                                elif rel_type == 'DATA_REL':
-                                    # Data relationship: use the relationship's own ID
-                                    if rel_id:
-                                        all_edges.add(rel_id)
-                                elif rel_type == 'SCHEMA_REL':
-                                    # Schema relationship: use the relationship's own ID
-                                    if rel_id:
-                                        all_edges.add(rel_id)
-                else:
-                    logger.warning(f"No paths found between {start_id} and {end_id}")
-                    all_nodes.update([start_id, end_id])
-            
-            # For 3+ nodes, find paths between ALL PAIRS (not just consecutive)
-            # THIS IS THE KEY FIX - previously it only found consecutive pairs
-            else:
-                logger.info(f"Finding paths between {len(node_ids)} nodes (all pairs)")
-                
-                # Find paths between all pairs of selected nodes
-                for i in range(len(node_ids)):
-                    for j in range(i + 1, len(node_ids)):
-                        start_id = node_ids[i]
-                        end_id = node_ids[j]
-                        
-                        logger.info(f"Finding paths between {start_id} and {end_id}")
-                        
-                        # Find all paths for this pair
-                        pair_response = SchemaService.get_all_paths_between_nodes(
-                            schema_id, [start_id, end_id], max_depth
-                        )
-                        
-                        # Merge results
-                        if pair_response.paths:
-                            all_paths.extend(pair_response.paths)
-                            all_nodes.update(pair_response.highlighted_nodes)
-                            all_edges.update(pair_response.highlighted_edges)
-            
-            logger.info(f"FINAL RESULT: {len(all_paths)} paths, {len(all_nodes)} nodes, {len(all_edges)} edges")
-            logger.info(f"Selected nodes were: {node_ids}")
-            logger.info(f"Edge IDs found: {list(all_edges)[:10]}...")  # Log first 10 edges
+                            all_edges.update([e for e in edge_path if e])
             
             return LineagePathResponse(
                 paths=all_paths,
@@ -497,178 +974,9 @@ class SchemaService:
             )
             
         except Exception as e:
-            logger.error(f"Failed to get all paths: {str(e)}")
-            logger.error(f"Node IDs: {node_ids}")
-            import traceback
-            logger.error(traceback.format_exc())
-            # Return empty response instead of raising
+            logger.error(f"Failed to find all paths: {str(e)}")
             return LineagePathResponse(
                 paths=[],
                 highlighted_nodes=node_ids,
                 highlighted_edges=[]
             )
-    
-    @staticmethod
-    def get_lineage_path(schema_id: str, start_node_id: str, end_node_id: Optional[str] = None, max_depth: int = 10) -> LineagePathResponse:
-        """Get lineage path from start node to end node (or all descendants)"""
-        try:
-            # First, check if the node exists and get its type
-            check_query = """
-            MATCH (n {id: $start_id})
-            RETURN n, labels(n) as labels
-            LIMIT 1
-            """
-            check_result = db.execute_query(check_query, {'start_id': start_node_id})
-            
-            if not check_result.result_set:
-                logger.warning(f"Node {start_node_id} not found")
-                return LineagePathResponse(
-                    paths=[],
-                    highlighted_nodes=[start_node_id],
-                    highlighted_edges=[]
-                )
-            
-            node_labels = check_result.result_set[0][1]
-            is_schema_class = 'SchemaClass' in node_labels
-            
-            # For schema classes, get all related instances and relationships
-            if is_schema_class:
-                query = """
-                MATCH (start:SchemaClass {id: $start_id})
-                OPTIONAL MATCH (start)<-[:INSTANCE_OF]-(instance:DataInstance)
-                OPTIONAL MATCH (start)-[r:SCHEMA_REL]->(target:SchemaClass)
-                WITH start, collect(DISTINCT instance.id) as instances, 
-                     collect(DISTINCT {rel_id: r.id, target: target.id}) as rels
-                RETURN start.id as start_id, instances, rels
-                """
-                result = db.execute_query(query, {'start_id': start_node_id})
-                
-                all_nodes = {start_node_id}
-                all_edges = set()
-                paths = []
-                
-                if result.result_set:
-                    row = result.result_set[0]
-                    instances = row[1] if row[1] else []
-                    relationships = row[2] if row[2] else []
-                    
-                    all_nodes.update([inst for inst in instances if inst])
-                    
-                    # Add parent-child edges
-                    for inst in instances:
-                        if inst:
-                            all_edges.add(f"parent_{start_node_id}_{inst}")
-                    
-                    # Add schema relationship edges
-                    for rel in relationships:
-                        if rel and 'rel_id' in rel:
-                            all_edges.add(rel['rel_id'])
-                            if 'target' in rel and rel['target']:
-                                all_nodes.add(rel['target'])
-                                paths.append([start_node_id, rel['target']])
-                
-                return LineagePathResponse(
-                    paths=paths,
-                    highlighted_nodes=list(all_nodes),
-                    highlighted_edges=list(all_edges)
-                )
-            
-            # For data instances, trace ALL downstream connections (no limit)
-            else:
-                query = """
-                MATCH path = (start:DataInstance {id: $start_id})-[r:DATA_REL*0..3]->(related:DataInstance)
-                WITH path, nodes(path) as node_list, relationships(path) as rel_list
-                RETURN [n IN node_list | n.id] as node_ids, 
-                       [rel IN rel_list | rel.id] as edge_ids
-                """
-                result = db.execute_query(query, {'start_id': start_node_id})
-                
-                paths = []
-                all_nodes = set()
-                all_edges = set()
-                
-                if result.result_set:
-                    for row in result.result_set:
-                        node_ids = row[0] if row[0] else []
-                        edge_ids = row[1] if row[1] else []
-                        
-                        if node_ids:
-                            paths.append(node_ids)
-                            all_nodes.update(node_ids)
-                        if edge_ids:
-                            all_edges.update(edge_ids)
-                
-                # If no paths found, at least highlight the node itself
-                if not all_nodes:
-                    all_nodes.add(start_node_id)
-                
-                return LineagePathResponse(
-                    paths=paths,
-                    highlighted_nodes=list(all_nodes),
-                    highlighted_edges=list(all_edges)
-                )
-            
-        except Exception as e:
-            logger.error(f"Failed to get lineage path: {str(e)}")
-            logger.error(f"Start node: {start_node_id}")
-            # Return empty response instead of raising
-            return LineagePathResponse(
-                paths=[],
-                highlighted_nodes=[start_node_id],
-                highlighted_edges=[]
-            )
-    
-    @staticmethod
-    def get_shortest_path(schema_id: str, node_ids: List[str]) -> LineagePathResponse:
-        """
-        Find shortest path between multiple nodes (LEGACY METHOD - use get_all_paths_between_nodes instead)
-        """
-        return SchemaService.get_all_paths_between_nodes(schema_id, node_ids, max_depth=10)
-    
-    @staticmethod
-    def get_schema_stats(schema_id: str) -> SchemaStats:
-        """Get statistics for a schema"""
-        try:
-            schema = SchemaService.get_schema(schema_id)
-            if not schema:
-                raise ValueError(f"Schema not found: {schema_id}")
-            
-            # Get total instances using HAS_CLASS relationship
-            instances_query = """
-            MATCH (s:Schema {id: $schema_id})-[:HAS_CLASS]->(c:SchemaClass)
-            OPTIONAL MATCH (c)<-[:INSTANCE_OF]-(i:DataInstance)
-            RETURN c.id as class_id, COUNT(i) as instance_count
-            """
-            instances_result = db.execute_query(instances_query, {'schema_id': schema_id})
-            
-            instances_by_class = {}
-            total_instances = 0
-            if instances_result.result_set:
-                for row in instances_result.result_set:
-                    class_id = row[0]
-                    count = row[1]
-                    instances_by_class[class_id] = count
-                    total_instances += count
-            
-            # Get total data relationships
-            data_rels_query = """
-            MATCH (source:DataInstance)-[r:DATA_REL]->(target:DataInstance)
-            WHERE source.schema_id = $schema_id
-            RETURN COUNT(r) as count
-            """
-            data_rels_result = db.execute_query(data_rels_query, {'schema_id': schema_id})
-            total_data_relationships = data_rels_result.result_set[0][0] if data_rels_result.result_set else 0
-            
-            return SchemaStats(
-                schema_id=schema.id,
-                schema_name=schema.name,
-                total_classes=len(schema.classes),
-                total_relationships=len(schema.relationships),
-                total_instances=total_instances,
-                total_data_relationships=total_data_relationships,
-                instances_by_class=instances_by_class
-            )
-            
-        except Exception as e:
-            logger.error(f"Failed to get schema stats: {str(e)}")
-            raise
