@@ -1,6 +1,6 @@
-// frontend/src/components/EnhancedLineageGraph.tsx - COMPLETE WITH PROPER HIGHLIGHTING
+// frontend/src/components/EnhancedLineageGraph.tsx - FIXED RENDERING ISSUE
 
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useEffect } from 'react';
 import ReactFlow, {
   Node as FlowNode,
   Edge,
@@ -16,6 +16,7 @@ import ReactFlow, {
   Handle,
   Position,
   ConnectionLineType,
+  useReactFlow,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import {
@@ -50,28 +51,42 @@ const EnhancedLineageGraphInner: React.FC<EnhancedLineageGraphProps> = ({
 }) => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const { fitView } = useReactFlow();
 
-  React.useEffect(() => {
+  useEffect(() => {
     console.log('=== GRAPH UPDATE ===');
+    console.log('Lineage Nodes:', lineageNodes.length);
+    console.log('Lineage Edges:', lineageEdges.length);
     console.log('Highlighted Nodes:', highlightedNodes);
     console.log('Highlighted Edges:', highlightedEdges);
-    console.log('Lineage Edges Available:', lineageEdges.map(e => e.id));
     
+    if (lineageNodes.length === 0) {
+      console.warn('⚠️ No nodes to render!');
+      setNodes([]);
+      setEdges([]);
+      return;
+    }
+
     const flowNodes = convertToFlowNodes(lineageNodes, highlightedNodes, selectedNodeIds);
     const flowEdges = convertToFlowEdges(lineageEdges, highlightedEdges);
     
-    console.log('Flow Nodes with highlighting:', flowNodes.filter(n => n.data.isHighlighted).length);
-    console.log('Flow Edges with highlighting:', flowEdges.filter(e => e.animated).length);
-    console.log('Flow Edges IDs:', flowEdges.map(e => ({ id: e.id, animated: e.animated })));
-    console.log('==================');
+    console.log('✅ Converted Flow Nodes:', flowNodes.length);
+    console.log('✅ Converted Flow Edges:', flowEdges.length);
+    console.log('Node positions:', flowNodes.map(n => ({ id: n.id, pos: n.position })));
     
     setNodes(flowNodes);
     setEdges(flowEdges);
-  }, [lineageNodes, lineageEdges, highlightedNodes, highlightedEdges, selectedNodeIds, setNodes, setEdges]);
+    
+    // Fit view after nodes are set
+    setTimeout(() => {
+      fitView({ padding: 0.2, duration: 200 });
+    }, 50);
+  }, [lineageNodes, lineageEdges, highlightedNodes, highlightedEdges, selectedNodeIds, setNodes, setEdges, fitView]);
 
   const handleNodeClick: NodeMouseHandler = useCallback(
     (event, node) => {
       event.stopPropagation();
+      console.log('Node clicked:', node.id);
       onNodeClick?.(node);
     },
     [onNodeClick]
@@ -79,6 +94,7 @@ const EnhancedLineageGraphInner: React.FC<EnhancedLineageGraphProps> = ({
 
   const handleToggleExpand = useCallback(
     (classId: string) => {
+      console.log('Toggling expand for class:', classId);
       onToggleExpand?.(classId);
     },
     [onToggleExpand]
@@ -94,50 +110,76 @@ const EnhancedLineageGraphInner: React.FC<EnhancedLineageGraphProps> = ({
     [handleToggleExpand]
   );
 
-  return (
-    <ReactFlow
-      nodes={nodes}
-      edges={edges}
-      onNodesChange={onNodesChange}
-      onEdgesChange={onEdgesChange}
-      onNodeClick={handleNodeClick}
-      nodeTypes={nodeTypes}
-      fitView
-      fitViewOptions={{ padding: 0.2 }}
-      minZoom={0.1}
-      maxZoom={2}
-      defaultEdgeOptions={{
-        type: 'smoothstep',
-        animated: false,
-      }}
-      connectionLineType={ConnectionLineType.SmoothStep}
-    >
-      <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
-      <Controls />
-      <MiniMap
-        nodeColor={(node) => {
-          if (highlightedNodes.includes(node.id)) return '#EAB308';
-          if (selectedNodeIds.includes(node.id)) return '#2563EB';
-          return node.data.color || '#6B7280';
-        }}
-        maskColor="rgba(0, 0, 0, 0.1)"
-      />
-      
-      <Panel position="top-left" className="bg-white border border-gray-200 rounded-lg shadow-md p-4">
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <Info size={16} className="text-gray-500" />
-            <span className="text-sm font-semibold text-gray-900">Legend</span>
-          </div>
-          <div className="text-xs space-y-1">
-            <LegendItem color="#6B7280" label="Schema Class" />
-            <LegendItem color="#3B82F6" label="Data Instance" />
-            {selectionMode && <LegendItem color="#2563EB" label="Selected" />}
-            {highlightedNodes.length > 0 && <LegendItem color="#EAB308" label="Highlighted Path" />}
-          </div>
+  // Show message if no nodes
+  if (lineageNodes.length === 0) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <Box size={64} className="mx-auto text-gray-300 mb-4" />
+          <h3 className="text-xl font-semibold text-gray-900 mb-2">No Nodes to Display</h3>
+          <p className="text-gray-600">
+            The schema has no classes or the graph couldn't be loaded.
+          </p>
         </div>
-      </Panel>
-    </ReactFlow>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full h-full">
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onNodeClick={handleNodeClick}
+        nodeTypes={nodeTypes}
+        fitView
+        fitViewOptions={{ padding: 0.2, duration: 200, maxZoom: 1.5 }}
+        minZoom={0.1}
+        maxZoom={2}
+        defaultEdgeOptions={{
+          type: 'smoothstep',
+          animated: false,
+        }}
+        connectionLineType={ConnectionLineType.SmoothStep}
+        attributionPosition="bottom-left"
+      >
+        <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#e5e7eb" />
+        <Controls />
+        <MiniMap
+          nodeColor={(node) => {
+            if (highlightedNodes.includes(node.id)) return '#EAB308';
+            if (selectedNodeIds.includes(node.id)) return '#2563EB';
+            return node.data.color || '#6B7280';
+          }}
+          maskColor="rgba(0, 0, 0, 0.1)"
+          position="bottom-right"
+        />
+        
+        <Panel position="top-left" className="bg-white border border-gray-200 rounded-lg shadow-md p-4">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Info size={16} className="text-gray-500" />
+              <span className="text-sm font-semibold text-gray-900">Legend</span>
+            </div>
+            <div className="text-xs space-y-1">
+              <LegendItem color="#6B7280" label="Schema Class" />
+              <LegendItem color="#3B82F6" label="Data Instance" />
+              {selectionMode && <LegendItem color="#2563EB" label="Selected" />}
+              {highlightedNodes.length > 0 && <LegendItem color="#EAB308" label="Highlighted Path" />}
+            </div>
+          </div>
+        </Panel>
+
+        {/* Node Count Panel */}
+        <Panel position="top-right" className="bg-white border border-gray-200 rounded-lg shadow-md px-3 py-2">
+          <div className="text-xs text-gray-600">
+            {nodes.length} node{nodes.length !== 1 ? 's' : ''} · {edges.length} edge{edges.length !== 1 ? 's' : ''}
+          </div>
+        </Panel>
+      </ReactFlow>
+    </div>
   );
 };
 
@@ -148,7 +190,7 @@ const LegendItem: React.FC<{ color: string; label: string }> = ({ color, label }
   </div>
 );
 
-// Convert lineage nodes to React Flow nodes
+// Convert lineage nodes to React Flow nodes with PROPER POSITIONING
 function convertToFlowNodes(
   lineageNodes: LineageNode[],
   highlightedNodes: string[],
@@ -157,17 +199,32 @@ function convertToFlowNodes(
   const schemaClasses = lineageNodes.filter(n => n.type === 'schema_class');
   const dataInstances = lineageNodes.filter(n => n.type === 'data_instance');
   
+  console.log('Converting nodes:', {
+    schemaClasses: schemaClasses.length,
+    dataInstances: dataInstances.length
+  });
+
   const nodes: FlowNode<FlowNodeData>[] = [];
   
-  // Schema classes
+  // FIXED: Better positioning for schema classes
+  const classSpacing = 400; // Increased spacing
+  const rowHeight = 250;
+  
   schemaClasses.forEach((node, index) => {
     const isSelected = selectedNodeIds.includes(node.id);
     const isHighlighted = highlightedNodes.includes(node.id);
     
+    // Calculate position in a grid layout
+    const col = index % 3;
+    const row = Math.floor(index / 3);
+    
     nodes.push({
       id: node.id,
       type: 'schemaClass',
-      position: node.position || { x: index * 350, y: 0 },
+      position: { 
+        x: col * classSpacing, 
+        y: row * rowHeight 
+      },
       data: {
         label: node.name,
         type: node.type,
@@ -175,23 +232,19 @@ function convertToFlowNodes(
         schema_id: node.schema_id,
         class_id: node.class_id,
         parent_id: node.parent_id,
-        collapsed: node.collapsed,
-        instance_count: node.data.instance_count,
-        attributes: node.data.attributes,
-        data: node.data,
-        color: node.data.color,
-        icon: node.data.icon,
+        collapsed: node.data?.collapsed !== false, // Default to collapsed
+        instance_count: node.data?.instance_count || 0,
+        attributes: node.data?.attributes || [],
+        data: node.data || {},
+        color: node.data?.color || '#6B7280',
+        icon: node.data?.icon || 'Box',
         isHighlighted,
         isSelected,
       },
-      style: isSelected ? {
-        border: '3px solid #2563EB',
-        boxShadow: '0 0 0 4px rgba(37, 99, 235, 0.2)',
-      } : undefined,
     });
   });
   
-  // Data instances
+  // FIXED: Better positioning for data instances
   const instancesByParent: Record<string, LineageNode[]> = {};
   dataInstances.forEach(instance => {
     const parentId = instance.parent_id || 'unknown';
@@ -204,17 +257,22 @@ function convertToFlowNodes(
   Object.entries(instancesByParent).forEach(([parentId, instances]) => {
     const parentNode = nodes.find(n => n.id === parentId);
     const parentX = parentNode?.position.x || 0;
+    const parentY = parentNode?.position.y || 0;
     
     instances.forEach((instance, index) => {
       const isSelected = selectedNodeIds.includes(instance.id);
       const isHighlighted = highlightedNodes.includes(instance.id);
       
+      // Position instances below parent in a grid
+      const col = index % 3;
+      const row = Math.floor(index / 3);
+      
       nodes.push({
         id: instance.id,
         type: 'dataInstance',
-        position: instance.position || {
-          x: parentX + (index % 3) * 200 - 200,
-          y: 200 + Math.floor(index / 3) * 150,
+        position: {
+          x: parentX + (col - 1) * 220,
+          y: parentY + 200 + row * 120,
         },
         data: {
           label: instance.name,
@@ -224,19 +282,16 @@ function convertToFlowNodes(
           class_id: instance.class_id,
           parent_id: instance.parent_id,
           collapsed: false,
-          data: instance.data,
+          data: instance.data || {},
           color: '#3B82F6',
           isHighlighted,
           isSelected,
         },
-        style: isSelected ? {
-          border: '3px solid #2563EB',
-          boxShadow: '0 0 0 4px rgba(37, 99, 235, 0.2)',
-        } : undefined,
       });
     });
   });
   
+  console.log(`✅ Created ${nodes.length} flow nodes`);
   return nodes;
 }
 
@@ -245,13 +300,6 @@ function convertToFlowEdges(
   lineageEdges: LineageEdge[],
   highlightedEdges: string[]
 ): Edge[] {
-  console.log('Converting edges:', {
-    totalEdges: lineageEdges.length,
-    highlightedEdges: highlightedEdges.length,
-    edgeIds: lineageEdges.map(e => e.id),
-    highlightIds: highlightedEdges
-  });
-
   return lineageEdges.map((edge) => {
     const isHighlighted = highlightedEdges.includes(edge.id);
     
@@ -266,16 +314,16 @@ function convertToFlowEdges(
       animated: isHighlighted,
       style: {
         stroke: isHighlighted ? '#EAB308' : '#9CA3AF',
-        strokeWidth: isHighlighted ? 4 : 2,
+        strokeWidth: isHighlighted ? 3 : 2,
       },
       labelStyle: {
         fill: '#374151',
-        fontSize: 12,
-        fontWeight: 600,
+        fontSize: 11,
+        fontWeight: 500,
       },
       labelBgStyle: {
         fill: 'white',
-        fillOpacity: 0.9,
+        fillOpacity: 0.8,
       },
     };
   });
@@ -299,13 +347,14 @@ const SchemaClassNode: React.FC<SchemaClassNodeProps> = ({ data, onToggleExpand 
 
   return (
     <div
-      className={`px-6 py-4 rounded-lg border-2 bg-white shadow-lg transition-all min-w-[200px] ${
+      className={`px-6 py-4 rounded-lg border-2 bg-white shadow-lg transition-all min-w-[220px] ${
         data.isSelected
-          ? 'border-blue-600 shadow-blue-200 ring-4 ring-blue-200'
+          ? 'border-blue-600 shadow-blue-300 ring-4 ring-blue-200'
           : data.isHighlighted
-          ? 'border-yellow-500 shadow-yellow-200 ring-4 ring-yellow-200'
+          ? 'border-yellow-500 shadow-yellow-300 ring-4 ring-yellow-200'
           : 'border-gray-300 hover:border-gray-400'
       }`}
+      style={{ cursor: 'pointer' }}
     >
       <Handle type="target" position={Position.Top} id="top" style={{ background: '#374151', width: 16, height: 16, border: '2px solid white' }} />
       <Handle type="source" position={Position.Bottom} id="bottom" style={{ background: '#374151', width: 16, height: 16, border: '2px solid white' }} />
@@ -317,13 +366,13 @@ const SchemaClassNode: React.FC<SchemaClassNodeProps> = ({ data, onToggleExpand 
           <div className="w-8 h-8 rounded flex items-center justify-center" style={{ backgroundColor: data.color || '#6B7280' }}>
             <Box size={18} className="text-white" />
           </div>
-          <div className="font-semibold text-black">{data.label}</div>
+          <div className="font-semibold text-sm text-black">{data.label}</div>
         </div>
         
         {hasInstances && (
           <button 
             onClick={handleToggle} 
-            className="p-2 hover:bg-gray-100 rounded transition-colors" 
+            className="p-1.5 hover:bg-gray-100 rounded transition-colors" 
             title={data.collapsed ? 'Expand to see data' : 'Collapse'}
           >
             {data.collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
@@ -332,9 +381,9 @@ const SchemaClassNode: React.FC<SchemaClassNodeProps> = ({ data, onToggleExpand 
       </div>
 
       {data.attributes && data.attributes.length > 0 && (
-        <div className="text-xs text-gray-600 space-y-1">
+        <div className="text-xs text-gray-600 space-y-1 mt-2">
           {data.attributes.slice(0, 3).map((attr, i) => (
-            <div key={i}>{attr}</div>
+            <div key={i} className="truncate">• {attr}</div>
           ))}
           {data.attributes.length > 3 && (
             <div className="text-gray-400">+{data.attributes.length - 3} more</div>
@@ -346,6 +395,7 @@ const SchemaClassNode: React.FC<SchemaClassNodeProps> = ({ data, onToggleExpand 
         <div className="mt-2 pt-2 border-t border-gray-200">
           <div className="text-xs text-gray-500">
             {data.instance_count} instance{data.instance_count !== 1 ? 's' : ''}
+            {data.collapsed && <span className="ml-1 text-blue-600">(click to expand)</span>}
           </div>
         </div>
       )}
@@ -368,6 +418,7 @@ const DataInstanceNode: React.FC<DataInstanceNodeProps> = ({ data }) => {
           ? 'border-yellow-500 shadow-yellow-200 ring-4 ring-yellow-200'
           : 'border-blue-300 hover:border-blue-400'
       }`}
+      style={{ cursor: 'pointer' }}
     >
       <Handle type="target" position={Position.Top} id="top" style={{ background: '#3B82F6', width: 12, height: 12, border: '2px solid white' }} />
       <Handle type="source" position={Position.Bottom} id="bottom" style={{ background: '#3B82F6', width: 12, height: 12, border: '2px solid white' }} />
@@ -375,8 +426,8 @@ const DataInstanceNode: React.FC<DataInstanceNodeProps> = ({ data }) => {
       <Handle type="source" position={Position.Right} id="right" style={{ background: '#3B82F6', width: 12, height: 12, border: '2px solid white' }} />
 
       <div className="flex items-center gap-2 mb-2">
-        <Circle size={14} className="text-blue-500" fill="currentColor" />
-        <div className="font-medium text-sm text-black">{data.label}</div>
+        <Circle size={12} className="text-blue-500" fill="currentColor" />
+        <div className="font-medium text-sm text-black truncate">{data.label}</div>
       </div>
 
       {data.data && Object.keys(data.data).length > 0 && (

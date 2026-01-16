@@ -5,7 +5,7 @@ import { Node as FlowNode } from 'reactflow';
 import { LandingPage } from './components/LandingPage';
 import { SchemaBuilder } from './components/SchemaBuilder';
 import { DataLoader } from './components/DataLoader';
-import { EnhancedLineageGraph } from './components/EnhancedLineageGraph'; // FIXED: Removed WithProvider
+import { EnhancedLineageGraph } from './components/EnhancedLineageGraph';
 import {
   Upload,
   ArrowLeft,
@@ -146,21 +146,44 @@ function App() {
       setPathFindingInProgress(true);
       setError(null);
 
+      console.log('=== INITIATING PATH FINDING ===');
+      console.log('Selected Node IDs (in order):', selectedNodeIds);
+      console.log('Number of selected nodes:', selectedNodeIds.length);
+      
+      if (selectedNodeIds.length === 2) {
+        console.log(`Finding paths between: ${selectedNodeIds[0]} → ${selectedNodeIds[1]}`);
+      } else {
+        console.log(`Finding paths between ALL PAIRS of ${selectedNodeIds.length} selected nodes:`);
+        for (let i = 0; i < selectedNodeIds.length; i++) {
+          for (let j = i + 1; j < selectedNodeIds.length; j++) {
+            console.log(`  - ${selectedNodeIds[i]} ↔ ${selectedNodeIds[j]}`);
+          }
+        }
+      }
+      console.log('================================');
+
       const response = await apiService.findAllPaths(
         currentSchema.id,
         selectedNodeIds,
-        10 // max_depth
+        20 // Increased max_depth for real scenarios
       );
 
       setHighlightedPath(response);
       
       console.log('=== PATH FINDING RESULT ===');
       console.log(`Found ${response.paths.length} paths between selected nodes`);
-      console.log('Highlighted Nodes:', response.highlighted_nodes);
-      console.log('Highlighted Edges:', response.highlighted_edges);
+      if (response.paths.length > 0) {
+        console.log('Sample paths (first 5):', response.paths.slice(0, 5));
+      }
+      console.log('Total Highlighted Nodes:', response.highlighted_nodes.length);
+      console.log('Total Highlighted Edges:', response.highlighted_edges.length);
+      if (response.paths.length > 100) {
+        console.log(`⚠️ Large result set: ${response.paths.length} paths found - all will be displayed`);
+      }
       console.log('===========================');
       
     } catch (err) {
+      console.error('Path finding failed:', err);
       setError(err instanceof Error ? err.message : 'Failed to find paths');
     } finally {
       setPathFindingInProgress(false);
@@ -289,16 +312,44 @@ function App() {
               {selectionMode && (
                 <div className="mt-3 p-3 bg-blue-50 rounded-lg">
                   <p className="text-xs text-blue-900 mb-2">
-                    Click nodes to select them. All paths between selected nodes will be shown.
+                    {selectedNodeIds.length === 0 && 'Click nodes to select them for path finding.'}
+                    {selectedNodeIds.length === 1 && 'Select one more node to find paths.'}
+                    {selectedNodeIds.length === 2 && `Finding paths between 2 selected nodes.`}
+                    {selectedNodeIds.length > 2 && `Finding paths between ALL PAIRS of ${selectedNodeIds.length} selected nodes (${(selectedNodeIds.length * (selectedNodeIds.length - 1)) / 2} pairs).`}
                   </p>
-                  <p className="text-xs font-semibold text-blue-900">
-                    Selected: {selectedNodeIds.length} node{selectedNodeIds.length !== 1 ? 's' : ''}
-                  </p>
-                  {highlightedPath && (
-                    <p className="text-xs text-blue-900 mt-1">
-                      Found: {highlightedPath.paths.length} path{highlightedPath.paths.length !== 1 ? 's' : ''}
-                    </p>
+                  
+                  {selectedNodeIds.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      <p className="text-xs font-semibold text-blue-900">
+                        Selected Nodes ({selectedNodeIds.length}):
+                      </p>
+                      <div className="max-h-32 overflow-y-auto bg-white rounded border border-blue-200 p-2">
+                        {selectedNodeIds.map((nodeId, index) => (
+                          <div key={nodeId} className="text-xs text-blue-800 truncate py-0.5">
+                            {index + 1}. {nodeId}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   )}
+                  
+                  {highlightedPath && (
+                    <div className="mt-2 pt-2 border-t border-blue-200 space-y-1">
+                      <p className="text-xs font-semibold text-blue-900">
+                        Found: {highlightedPath.paths.length} path{highlightedPath.paths.length !== 1 ? 's' : ''}
+                      </p>
+                      <p className="text-xs text-blue-800">
+                        Nodes: {highlightedPath.highlighted_nodes.length} | 
+                        Edges: {highlightedPath.highlighted_edges.length}
+                      </p>
+                      {highlightedPath.paths.length > 10 && (
+                        <p className="text-xs text-blue-700 italic">
+                          Showing all {highlightedPath.paths.length} paths in graph
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  
                   {selectedNodeIds.length >= 2 && (
                     <button
                       onClick={() => {
@@ -354,19 +405,18 @@ function App() {
 
             {error && (
               <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-10">
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3 shadow-lg">
                   <AlertCircle size={20} className="text-red-600" />
-                  <span className="text-sm text-red-900">{error}</span>
+                  <p className="text-red-600">{error}</p>
                 </div>
               </div>
             )}
 
-            {/* FIXED: Using EnhancedLineageGraph directly (includes ReactFlowProvider internally) */}
             <EnhancedLineageGraph
               nodes={lineageGraph.nodes}
               edges={lineageGraph.edges}
-              highlightedNodes={highlightedPath?.highlighted_nodes || []}
-              highlightedEdges={highlightedPath?.highlighted_edges || []}
+              highlightedNodes={highlightedPath?.highlighted_nodes}
+              highlightedEdges={highlightedPath?.highlighted_edges}
               selectedNodeIds={selectedNodeIds}
               selectionMode={selectionMode}
               onNodeClick={handleNodeClick}
