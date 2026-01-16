@@ -93,33 +93,41 @@ class SchemaService:
     
     @staticmethod
     def get_schema(schema_id: str) -> Optional[SchemaDefinition]:
-        """Get a schema by ID"""
+        """Get schema by ID"""
         try:
-            # Get schema
+            # Get schema node
             schema_query = """
             MATCH (s:Schema {id: $schema_id})
             RETURN s
             """
-            schema_result = db.execute_query(schema_query, {'schema_id': schema_id})
             
-            if not schema_result.result_set:
+            result = db.execute_query(schema_query, {'schema_id': schema_id})
+            
+            if not result.result_set:
+                logger.warning(f"Schema {schema_id} not found")
                 return None
             
-            schema_node = schema_result.result_set[0][0]
+            schema_node = result.result_set[0][0]
             schema_props = dict(schema_node.properties)
             
-            # Get classes
+            logger.info(f"Found schema: {schema_props.get('name')}")
+            
+            # Get classes - THIS IS THE CRITICAL FIX
             classes_query = """
-            MATCH (c:SchemaClass)-[:BELONGS_TO]->(s:Schema {id: $schema_id})
+            MATCH (s:Schema {id: $schema_id})-[:HAS_CLASS]->(c:SchemaClass)
             RETURN c
             """
+            
             classes_result = db.execute_query(classes_query, {'schema_id': schema_id})
             
             classes = []
             if classes_result.result_set:
+                logger.info(f"Found {len(classes_result.result_set)} classes in database")
                 for row in classes_result.result_set:
                     cls = row[0]
                     cls_props = dict(cls.properties)
+                    logger.info(f"  - Class: {cls_props.get('name')} (ID: {cls_props.get('id')})")
+                    
                     classes.append(SchemaClass(
                         id=cls_props['id'],
                         name=cls_props['name'],
@@ -128,38 +136,58 @@ class SchemaService:
                         color=cls_props.get('color', '#6B7280'),
                         icon=cls_props.get('icon', 'Box')
                     ))
+            else:
+                logger.warning(f"No classes found for schema {schema_id} with HAS_CLASS relationship")
             
             # Get relationships
             rels_query = """
             MATCH (source:SchemaClass {schema_id: $schema_id})-[r:SCHEMA_REL]->(target:SchemaClass {schema_id: $schema_id})
             RETURN r, source.id, target.id
             """
+            
             rels_result = db.execute_query(rels_query, {'schema_id': schema_id})
             
             relationships = []
             if rels_result.result_set:
+                logger.info(f"Found {len(rels_result.result_set)} relationships")
                 for row in rels_result.result_set:
                     rel = row[0]
                     rel_props = dict(rel.properties)
+                    source_id = row[1]
+                    target_id = row[2]
+                    
+                    logger.info(f"  - Relationship: {rel_props.get('name')} ({source_id} -> {target_id})")
+                    
                     relationships.append(SchemaRelationship(
                         id=rel_props['id'],
                         name=rel_props['name'],
                         description=rel_props.get('description', ''),
-                        source_class_id=row[1],
-                        target_class_id=row[2],
+                        source_class_id=source_id,
+                        target_class_id=target_id,
                         cardinality=rel_props.get('cardinality', 'one_to_many')
                     ))
+            else:
+                logger.warning(f"No relationships found for schema {schema_id}")
             
-            return SchemaDefinition(
+            schema = SchemaDefinition(
                 id=schema_props['id'],
                 name=schema_props['name'],
                 description=schema_props.get('description', ''),
+                version=schema_props.get('version', '1.0.0'),
                 classes=classes,
-                relationships=relationships
+                relationships=relationships,
+                created_at=schema_props.get('created_at'),
+                updated_at=schema_props.get('updated_at')
             )
+            
+            logger.info(f"Returning schema with {len(classes)} classes and {len(relationships)} relationships")
+            
+            return schema
             
         except Exception as e:
             logger.error(f"Failed to get schema: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             raise
     
     @staticmethod

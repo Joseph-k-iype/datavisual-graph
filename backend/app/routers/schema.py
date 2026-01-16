@@ -259,3 +259,146 @@ async def load_data(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to load data: {str(e)}"
         )
+    # Add this to backend/app/routers/schema.py
+
+@router.get("/{schema_id}/verify-db")
+async def verify_database(schema_id: str):
+    """Verify what's actually in the database for this schema"""
+    from ..database import db
+    
+    results = {}
+    
+    # 1. Check schema exists
+    schema_check = """
+    MATCH (s:Schema {id: $schema_id})
+    RETURN s.name as name
+    """
+    schema_result = db.execute_query(schema_check, {'schema_id': schema_id})
+    results['schema_exists'] = len(schema_result.result_set) > 0 if schema_result.result_set else False
+    if results['schema_exists']:
+        results['schema_name'] = schema_result.result_set[0][0]
+    
+    # 2. Check for classes with HAS_CLASS relationship
+    has_class_check = """
+    MATCH (s:Schema {id: $schema_id})-[:HAS_CLASS]->(c:SchemaClass)
+    RETURN c.id, c.name
+    """
+    has_class_result = db.execute_query(has_class_check, {'schema_id': schema_id})
+    results['classes_with_HAS_CLASS'] = []
+    if has_class_result.result_set:
+        for row in has_class_result.result_set:
+            results['classes_with_HAS_CLASS'].append({
+                'id': row[0],
+                'name': row[1]
+            })
+    
+    # 3. Check for classes with BELONGS_TO relationship (old/wrong)
+    belongs_to_check = """
+    MATCH (c:SchemaClass)-[:BELONGS_TO]->(s:Schema {id: $schema_id})
+    RETURN c.id, c.name
+    """
+    belongs_to_result = db.execute_query(belongs_to_check, {'schema_id': schema_id})
+    results['classes_with_BELONGS_TO'] = []
+    if belongs_to_result.result_set:
+        for row in belongs_to_result.result_set:
+            results['classes_with_BELONGS_TO'].append({
+                'id': row[0],
+                'name': row[1]
+            })
+    
+    # 4. Check for orphaned classes (have schema_id property but no relationship)
+    orphan_check = """
+    MATCH (c:SchemaClass {schema_id: $schema_id})
+    WHERE NOT (c)-[:HAS_CLASS|BELONGS_TO]-()
+    RETURN c.id, c.name
+    """
+    orphan_result = db.execute_query(orphan_check, {'schema_id': schema_id})
+    results['orphaned_classes'] = []
+    if orphan_result.result_set:
+        for row in orphan_result.result_set:
+            results['orphaned_classes'].append({
+                'id': row[0],
+                'name': row[1]
+            })
+    
+    # 5. Check all SchemaClass nodes with this schema_id (regardless of relationship)
+    all_classes_check = """
+    MATCH (c:SchemaClass {schema_id: $schema_id})
+    RETURN c.id, c.name
+    """
+    all_classes_result = db.execute_query(all_classes_check, {'schema_id': schema_id})
+    results['all_classes_with_schema_id'] = []
+    if all_classes_result.result_set:
+        for row in all_classes_result.result_set:
+            results['all_classes_with_schema_id'].append({
+                'id': row[0],
+                'name': row[1]
+            })
+    
+    # 6. Diagnosis
+    if not results['schema_exists']:
+        results['diagnosis'] = "❌ Schema doesn't exist!"
+    elif len(results['classes_with_HAS_CLASS']) > 0:
+        results['diagnosis'] = f"✅ Found {len(results['classes_with_HAS_CLASS'])} classes with correct HAS_CLASS relationship"
+    elif len(results['classes_with_BELONGS_TO']) > 0:
+        results['diagnosis'] = f"⚠️ Found {len(results['classes_with_BELONGS_TO'])} classes with OLD BELONGS_TO relationship - NEED TO FIX!"
+        results['fix_needed'] = "Run the migration endpoint to fix relationships"
+    elif len(results['orphaned_classes']) > 0:
+        results['diagnosis'] = f"⚠️ Found {len(results['orphaned_classes'])} orphaned classes - NEED TO CONNECT!"
+        results['fix_needed'] = "Run the migration endpoint to create HAS_CLASS relationships"
+    elif len(results['all_classes_with_schema_id']) > 0:
+        results['diagnosis'] = "⚠️ Classes exist but relationship is unclear"
+    else:
+        results['diagnosis'] = "❌ No classes found at all - schema was created without classes"
+    
+    return results
+
+
+@router.post("/{schema_id}/fix-relationships")
+async def fix_relationships(schema_id: str):
+    """
+    Fix schema class relationships
+    This will:
+    1. Remove old BELONGS_TO relationships
+    2. Create correct HAS_CLASS relationships
+    """
+    from ..database import db
+    
+    try:
+        # First, create HAS_CLASS for classes that have schema_id property
+        fix_query = """
+        MATCH (s:Schema {id: $schema_id})
+        MATCH (c:SchemaClass {schema_id: $schema_id})
+        WHERE NOT (s)-[:HAS_CLASS]->(c)
+        CREATE (s)-[:HAS_CLASS]->(c)
+        RETURN c.id, c.name
+        """
+        result = db.execute_query(fix_query, {'schema_id': schema_id})
+        
+        fixed_classes = []
+        if result.result_set:
+            for row in result.result_set:
+                fixed_classes.append({
+                    'id': row[0],
+                    'name': row[1]
+                })
+        
+        # Remove old BELONGS_TO relationships
+        remove_old_query = """
+        MATCH (c:SchemaClass)-[r:BELONGS_TO]->(:Schema {id: $schema_id})
+        DELETE r
+        """
+        db.execute_query(remove_old_query, {'schema_id': schema_id})
+        
+        return {
+            'success': True,
+            'message': f'Fixed {len(fixed_classes)} classes',
+            'fixed_classes': fixed_classes
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to fix relationships: {str(e)}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
