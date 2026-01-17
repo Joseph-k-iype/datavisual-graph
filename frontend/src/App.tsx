@@ -1,446 +1,501 @@
-// frontend/src/App.tsx - FIXED VERSION WITH SINGLE LOAD
+// frontend/src/App.tsx - FIXED (no hierarchy error)
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Node as FlowNode } from 'reactflow';
-import { LandingPage } from './components/LandingPage';
-import { SchemaBuilder } from './components/SchemaBuilder';
-import { DataLoader } from './components/DataLoader';
-import { EnhancedLineageGraph } from './components/EnhancedLineageGraph';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
+  Box,
+  AppBar,
+  Toolbar,
+  Typography,
+  Button,
+  IconButton,
+  Drawer,
+  Stack,
+  Alert,
+  CircularProgress,
+  Snackbar,
+} from '@mui/material';
+import {
+  Menu as MenuIcon,
+  Add,
   Upload,
-  ArrowLeft,
-  Loader,
-  AlertCircle,
-  Zap,
-  RefreshCw,
-  Database,
-} from 'lucide-react';
+  Refresh,
+  Close,
+} from '@mui/icons-material';
+import { Node as FlowNode } from 'reactflow';
+
+import { LineageCanvas } from './components/lineage/LineageCanvas';
+import { HierarchyTreeComponent } from './components/lineage/HierarchyTree';
+import { FileUploader, FileFormat } from './components/data/FileUploader';
+import { useLineageGraph } from './hooks/useLineageGraph';
+import apiService from './services/api';
 import {
   SchemaDefinition,
-  LineageGraphResponse,
-  LineagePathResponse,
-  SchemaStats,
+  DataLoadRequest,
+  ClassDataMapping,
+  ColumnMapping,
 } from './types';
-import apiService from './services/api';
 
-type AppView = 'landing' | 'schema-builder' | 'data-loader' | 'visualization';
+type AppView = 'landing' | 'visualization';
+
+interface SnackbarState {
+  open: boolean;
+  message: string;
+  severity: 'success' | 'error' | 'info' | 'warning';
+}
 
 function App() {
+  // State
   const [view, setView] = useState<AppView>('landing');
   const [currentSchema, setCurrentSchema] = useState<SchemaDefinition | null>(null);
-  const [lineageGraph, setLineageGraph] = useState<LineageGraphResponse | null>(null);
-  const [schemaStats, setSchemaStats] = useState<SchemaStats | null>(null);
-  const [expandedClasses, setExpandedClasses] = useState<Set<string>>(new Set());
-  const [selectedNode, setSelectedNode] = useState<FlowNode | null>(null);
-  const [highlightedPath, setHighlightedPath] = useState<LineagePathResponse | null>(null);
+  const [schemas, setSchemas] = useState<SchemaDefinition[]>([]);
+  const [leftDrawerOpen, setLeftDrawerOpen] = useState(true);
+  const [rightDrawerOpen, setRightDrawerOpen] = useState(false);
+  const [dataLoaderOpen, setDataLoaderOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  
-  const [selectionMode, setSelectionMode] = useState(false);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
-  const [pathFindingInProgress, setPathFindingInProgress] = useState(false);
-  
-  // Prevent multiple simultaneous loads
-  const loadingRef = useRef(false);
+  const [highlightedNodes, setHighlightedNodes] = useState<string[]>([]);
+  const [highlightedEdges, setHighlightedEdges] = useState<string[]>([]);
+  const [snackbar, setSnackbar] = useState<SnackbarState>({
+    open: false,
+    message: '',
+    severity: 'info',
+  });
 
-  const loadLineageGraph = useCallback(
-    async (schemaId: string, expanded: string[]) => {
-      // Prevent concurrent loads
-      if (loadingRef.current) {
-        console.log('⏭️ Skipping concurrent load');
-        return;
-      }
-
-      try {
-        loadingRef.current = true;
-        console.log('🔄 Loading lineage graph for:', schemaId, 'expanded:', expanded);
-        
-        const graph = await apiService.getLineageGraph(schemaId, expanded);
-        
-        console.log('✅ Loaded graph:', { 
-          nodes: graph?.nodes?.length || 0, 
-          edges: graph?.edges?.length || 0 
-        });
-        
-        if (!graph || !graph.nodes || graph.nodes.length === 0) {
-          console.warn('⚠️ Graph has no nodes!');
-        }
-        
-        setLineageGraph(graph);
-      } catch (err) {
-        console.error('❌ Load failed:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load lineage graph');
-      } finally {
-        loadingRef.current = false;
-      }
+  // Hooks
+  const { graph, loading: graphLoading, loadGraph } = useLineageGraph({
+    onError: (error) => {
+      showSnackbar(error.message, 'error');
     },
-    []
-  );
+  });
 
-  const loadSchema = useCallback((schemaId: string) => {
-    (async () => {
+  // Load schemas on mount
+  useEffect(() => {
+    loadSchemas();
+  }, []);
+
+  // Load schemas
+  const loadSchemas = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await apiService.getSchemas();
+      setSchemas(data);
+      
+      // Auto-select first schema if available
+      if (data.length > 0 && !currentSchema) {
+        await handleSelectSchema(data[0]);
+      }
+    } catch (error) {
+      showSnackbar('Failed to load schemas', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [currentSchema]);
+
+  // Select schema
+  const handleSelectSchema = useCallback(async (schema: SchemaDefinition) => {
+    try {
+      setLoading(true);
+      setCurrentSchema(schema);
+      await loadGraph(schema.id);
+      setView('visualization');
+      showSnackbar(`Loaded schema: ${schema.name}`, 'success');
+    } catch (error) {
+      showSnackbar('Failed to load schema', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [loadGraph]);
+
+  // Refresh current schema
+  const handleRefresh = useCallback(async () => {
+    if (currentSchema) {
       try {
         setLoading(true);
-        setError(null);
-
-        console.log('📥 Loading schema:', schemaId);
-
-        const [schema, stats] = await Promise.all([
-          apiService.getSchema(schemaId),
-          apiService.getSchemaStats(schemaId),
-        ]);
-
-        console.log('✅ Schema loaded:', schema);
-        console.log('✅ Stats loaded:', stats);
-
-        setCurrentSchema(schema);
-        setSchemaStats(stats);
-        
-        // Load lineage graph once
-        await loadLineageGraph(schemaId, []);
-        
-        setView('visualization');
-      } catch (err) {
-        console.error('❌ Schema load failed:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load schema');
+        await loadGraph(currentSchema.id);
+        showSnackbar('Schema refreshed', 'success');
+      } catch (error) {
+        showSnackbar('Failed to refresh schema', 'error');
       } finally {
         setLoading(false);
       }
-    })();
-  }, [loadLineageGraph]);
-
-  const handleToggleExpand = useCallback(
-    (classId: string) => {
-      if (!currentSchema) return;
-      
-      setExpandedClasses((prev) => {
-        const newExpanded = new Set(prev);
-        if (newExpanded.has(classId)) {
-          newExpanded.delete(classId);
-          console.log('🔽 Collapsing class:', classId);
-        } else {
-          newExpanded.add(classId);
-          console.log('🔼 Expanding class:', classId);
-        }
-        
-        const expandedArray = Array.from(newExpanded);
-        console.log('📋 New expanded state:', expandedArray);
-        
-        // Show loading state while reloading
-        setLoading(true);
-        
-        // Reload graph with new expanded state
-        setTimeout(() => {
-          loadLineageGraph(currentSchema.id, expandedArray).finally(() => {
-            setLoading(false);
-          });
-        }, 100);
-        
-        return newExpanded;
-      });
-    },
-    [currentSchema, loadLineageGraph]
-  );
-
-  const handleNodeClick = useCallback((node: FlowNode) => {
-    console.log('🖱️ Node clicked:', node.id);
-    setSelectedNode(node);
-    
-    if (selectionMode) {
-      setSelectedNodeIds(prev => {
-        const newIds = prev.includes(node.id)
-          ? prev.filter(id => id !== node.id)
-          : [...prev, node.id];
-        console.log('📌 Selected nodes:', newIds);
-        return newIds;
-      });
     }
-  }, [selectionMode]);
+  }, [currentSchema, loadGraph]);
 
-  const handleSchemaCreated = useCallback((schemaId: string) => {
-    (async () => {
-      try {
-        console.log('📥 Schema created:', schemaId);
-        const schema = await apiService.getSchema(schemaId);
-        setCurrentSchema(schema);
-        setView('data-loader');
-      } catch (err) {
-        console.error('❌ Failed to load created schema:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load schema');
-      }
-    })();
+  // Handle node click
+  const handleNodeClick = useCallback((node: FlowNode) => {
+    console.log('Node clicked:', node);
+    setSelectedNodeIds([node.id]);
   }, []);
 
-  const handleDataLoaded = useCallback(() => {
-    if (currentSchema) {
-      console.log('🔄 Data loaded, refreshing lineage');
-      loadLineageGraph(currentSchema.id, Array.from(expandedClasses));
-      apiService.getSchemaStats(currentSchema.id).then(stats => {
-        console.log('📊 Stats updated:', stats);
-        setSchemaStats(stats);
+  // Handle attribute click
+  const handleAttributeClick = useCallback(async (attributeId: string, nodeId: string) => {
+    console.log('Attribute clicked:', attributeId, 'in node:', nodeId);
+    
+    try {
+      setLoading(true);
+      const trace = await apiService.traceAttributeLineage({
+        attribute_id: attributeId,
+        direction: 'both',
+        max_depth: 10,
       });
+      
+      setHighlightedNodes(trace.highlighted_nodes);
+      setHighlightedEdges(trace.highlighted_edges);
+      setRightDrawerOpen(true);
+      showSnackbar('Attribute lineage traced', 'success');
+    } catch (error) {
+      showSnackbar('Failed to trace attribute lineage', 'error');
+    } finally {
+      setLoading(false);
     }
-  }, [currentSchema, expandedClasses, loadLineageGraph]);
+  }, []);
 
-  const findAllPaths = useCallback(async () => {
-    if (!currentSchema || selectedNodeIds.length < 2) {
+  // Handle file upload
+  const handleFileUpload = useCallback(async (file: File, format: FileFormat) => {
+    if (!currentSchema) {
+      showSnackbar('No schema selected', 'error');
       return;
     }
 
     try {
-      setPathFindingInProgress(true);
-      setError(null);
-
-      console.log('🔍 Finding paths between', selectedNodeIds.length, 'nodes:', selectedNodeIds);
-
-      const response = await apiService.findAllPaths(
-        currentSchema.id,
-        selectedNodeIds,
-        20
-      );
-
-      console.log('✅ Found', response.paths.length, 'paths');
-      console.log('📍 Highlighted nodes:', response.highlighted_nodes.length);
-      console.log('🔗 Highlighted edges:', response.highlighted_edges.length);
+      setLoading(true);
       
-      setHighlightedPath(response);
+      // Parse file
+      const parsed = await apiService.parseFile(file, format);
+      console.log('Parsed file:', parsed);
       
-    } catch (err) {
-      console.error('❌ Path finding failed:', err);
-      setError(err instanceof Error ? err.message : 'Failed to find paths');
-    } finally {
-      setPathFindingInProgress(false);
-    }
-  }, [currentSchema, selectedNodeIds]);
-
-  // Only find paths when selection changes
-  useEffect(() => {
-    if (selectionMode && selectedNodeIds.length >= 2) {
-      findAllPaths();
-    } else {
-      setHighlightedPath(null);
-    }
-  }, [selectionMode, selectedNodeIds.length]); // Only depend on length, not the array itself
-
-  // Reset selection when leaving selection mode
-  useEffect(() => {
-    if (!selectionMode) {
-      setSelectedNodeIds([]);
-      setHighlightedPath(null);
-    }
-  }, [selectionMode]);
-
-  return (
-    <div className="min-h-screen bg-gray-50">
-      {view === 'landing' && (
-        <LandingPage
-          onCreateSchema={() => setView('schema-builder')}
-          onOpenSchema={loadSchema}
-        />
-      )}
-
-      {view === 'schema-builder' && (
-        <SchemaBuilder
-          onComplete={handleSchemaCreated}
-          onCancel={() => setView('landing')}
-        />
-      )}
-
-      {view === 'data-loader' && currentSchema && (
-        <DataLoader
-          schema={currentSchema}
-          onComplete={handleDataLoaded}
-          onCancel={() => {
-            setView('visualization');
-            if (currentSchema) {
-              loadLineageGraph(currentSchema.id, Array.from(expandedClasses));
+      // Auto-map columns to attributes (simple 1:1 mapping by name)
+      const classMappings: ClassDataMapping[] = currentSchema.classes.map(cls => {
+        const columnMappings: ColumnMapping[] = cls.attributes
+          .map(attr => {
+            // Try to find matching column by name
+            const matchingColumn = parsed.columns.find(col => 
+              col.toLowerCase() === attr.toLowerCase()
+            );
+            
+            if (matchingColumn) {
+              return {
+                source_column: matchingColumn,
+                target_attribute: attr,
+              };
             }
+            return null;
+          })
+          .filter((mapping): mapping is ColumnMapping => mapping !== null);
+        
+        return {
+          class_id: cls.id,
+          column_mappings: columnMappings,
+        };
+      }).filter(mapping => mapping.column_mappings.length > 0);
+
+      if (classMappings.length === 0) {
+        showSnackbar('No matching columns found for any class', 'warning');
+        setLoading(false);
+        return;
+      }
+
+      // Create load request
+      const loadRequest: DataLoadRequest = {
+        schema_id: currentSchema.id,
+        format,
+        file_name: file.name,
+        class_mappings: classMappings,
+      };
+
+      // Load data
+      const result = await apiService.loadData(currentSchema.id, file, loadRequest);
+      
+      if (result.success) {
+        showSnackbar(
+          `Loaded ${result.instances_created} instances, ${result.relationships_created} relationships`,
+          'success'
+        );
+        setDataLoaderOpen(false);
+        await handleRefresh();
+      } else {
+        showSnackbar(`Load failed: ${result.errors.join(', ')}`, 'error');
+      }
+    } catch (error) {
+      showSnackbar('Failed to load data', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [currentSchema, handleRefresh]);
+
+  // Show snackbar
+  const showSnackbar = useCallback(
+    (message: string, severity: SnackbarState['severity']) => {
+      setSnackbar({ open: true, message, severity });
+    },
+    []
+  );
+
+  // Close snackbar
+  const handleCloseSnackbar = useCallback(() => {
+    setSnackbar(prev => ({ ...prev, open: false }));
+  }, []);
+
+  // Clear highlights
+  const handleClearHighlights = useCallback(() => {
+    setHighlightedNodes([]);
+    setHighlightedEdges([]);
+  }, []);
+
+  // Landing view
+  if (view === 'landing' || !currentSchema) {
+    return (
+      <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+        {/* Top Bar */}
+        <AppBar position="static">
+          <Toolbar>
+            <Typography variant="h6" sx={{ flexGrow: 1 }}>
+              Data Lineage Dashboard
+            </Typography>
+          </Toolbar>
+        </AppBar>
+
+        {/* Content */}
+        <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 3 }}>
+          <Stack spacing={3} alignItems="center" maxWidth={600}>
+            <Typography variant="h3" fontWeight={600} textAlign="center">
+              Enterprise Data Lineage
+            </Typography>
+            <Typography variant="body1" color="text.secondary" textAlign="center">
+              Visualize and trace data flows across your entire data ecosystem with
+              fine-grain column-level lineage tracking.
+            </Typography>
+
+            {loading ? (
+              <CircularProgress />
+            ) : schemas.length > 0 ? (
+              <Stack spacing={2} sx={{ width: '100%' }}>
+                <Typography variant="subtitle1" fontWeight={600}>
+                  Select a Schema:
+                </Typography>
+                {schemas.map(schema => (
+                  <Button
+                    key={schema.id}
+                    variant="outlined"
+                    size="large"
+                    onClick={() => handleSelectSchema(schema)}
+                    sx={{ justifyContent: 'flex-start' }}
+                  >
+                    <Box sx={{ textAlign: 'left' }}>
+                      <Typography variant="subtitle2">{schema.name}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {schema.classes.length} classes, {schema.relationships.length} relationships
+                      </Typography>
+                    </Box>
+                  </Button>
+                ))}
+              </Stack>
+            ) : (
+              <Alert severity="info">
+                No schemas found. Create a schema to get started.
+              </Alert>
+            )}
+
+            <Button
+              variant="contained"
+              startIcon={<Add />}
+              size="large"
+              onClick={loadSchemas}
+            >
+              Reload Schemas
+            </Button>
+          </Stack>
+        </Box>
+      </Box>
+    );
+  }
+
+  // Main visualization view
+  return (
+    <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+      {/* Top Bar */}
+      <AppBar position="static">
+        <Toolbar>
+          <IconButton
+            edge="start"
+            color="inherit"
+            onClick={() => setLeftDrawerOpen(!leftDrawerOpen)}
+          >
+            <MenuIcon />
+          </IconButton>
+          <Typography variant="h6" sx={{ flexGrow: 1, ml: 2 }}>
+            {currentSchema.name}
+          </Typography>
+          
+          {highlightedNodes.length > 0 && (
+            <Button
+              color="inherit"
+              startIcon={<Close />}
+              onClick={handleClearHighlights}
+              sx={{ mr: 2 }}
+            >
+              Clear Highlights ({highlightedNodes.length})
+            </Button>
+          )}
+
+          <Button
+            color="inherit"
+            startIcon={<Upload />}
+            onClick={() => setDataLoaderOpen(true)}
+            sx={{ mr: 2 }}
+          >
+            Load Data
+          </Button>
+          
+          <IconButton
+            color="inherit"
+            onClick={handleRefresh}
+            disabled={loading || graphLoading}
+          >
+            {loading || graphLoading ? <CircularProgress size={24} color="inherit" /> : <Refresh />}
+          </IconButton>
+        </Toolbar>
+      </AppBar>
+
+      {/* Main Content */}
+      <Box sx={{ flexGrow: 1, display: 'flex', overflow: 'hidden' }}>
+        {/* Left Sidebar - Hierarchy */}
+        <Drawer
+          variant="persistent"
+          anchor="left"
+          open={leftDrawerOpen}
+          sx={{
+            width: 320,
+            flexShrink: 0,
+            '& .MuiDrawer-paper': {
+              width: 320,
+              boxSizing: 'border-box',
+              position: 'relative',
+            },
           }}
-        />
-      )}
+        >
+          <HierarchyTreeComponent
+            hierarchy={null}
+            selectedNodeId={selectedNodeIds[0]}
+            onNodeSelect={(nodeId) => setSelectedNodeIds([nodeId])}
+            onAttributeClick={handleAttributeClick}
+            showAttributes={true}
+            showInstanceCounts={true}
+          />
+        </Drawer>
 
-      {view === 'visualization' && (
-        <div className="flex h-screen">
-          <div className="w-80 bg-white border-r border-gray-200 flex flex-col">
-            <div className="p-6 border-b border-gray-200">
-              <button
-                onClick={() => {
-                  console.log('🔙 Returning to landing');
-                  setView('landing');
-                  setCurrentSchema(null);
-                  setLineageGraph(null);
-                  setExpandedClasses(new Set());
-                  setHighlightedPath(null);
-                  setSelectedNodeIds([]);
-                  setSelectionMode(false);
-                  setError(null);
-                }}
-                className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4"
-              >
-                <ArrowLeft size={16} />
-                <span className="text-sm font-medium">Back to Schemas</span>
-              </button>
+        {/* Main Canvas */}
+        <Box sx={{ flexGrow: 1, position: 'relative' }}>
+          {graphLoading ? (
+            <Box
+              sx={{
+                height: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <CircularProgress size={60} />
+            </Box>
+          ) : (
+            <LineageCanvas
+              graph={graph}
+              onNodeClick={handleNodeClick}
+              onAttributeClick={handleAttributeClick}
+              showAttributes={true}
+              highlightedNodes={highlightedNodes}
+              highlightedEdges={highlightedEdges}
+            />
+          )}
+        </Box>
 
-              {currentSchema && (
-                <>
-                  <h1 className="text-2xl font-bold text-black mb-2">{currentSchema.name}</h1>
-                  {currentSchema.description && (
-                    <p className="text-sm text-gray-600">{currentSchema.description}</p>
-                  )}
-                </>
-              )}
-            </div>
-
-            {schemaStats && (
-              <div className="p-6 border-b border-gray-200 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-600">Classes</span>
-                  <span className="text-lg font-semibold text-black">
-                    {schemaStats.total_classes}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-600">Relationships</span>
-                  <span className="text-lg font-semibold text-black">
-                    {schemaStats.total_relationships}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-600">Instances</span>
-                  <span className="text-lg font-semibold text-black">
-                    {schemaStats.total_instances}
-                  </span>
-                </div>
-                
-                {schemaStats.total_relationships === 0 && (
-                  <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
-                    ⚠️ No relationships defined - edges won't be visible
-                  </div>
-                )}
-                
-                {schemaStats.total_instances === 0 && (
-                  <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
-                    ℹ️ No data loaded - use Data Loader to import data
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="p-6 border-b border-gray-200">
-              <button
-                onClick={() => setSelectionMode(!selectionMode)}
-                className={`w-full px-4 py-2 rounded-lg font-medium transition-colors ${
-                  selectionMode
-                    ? 'bg-blue-600 text-white hover:bg-blue-700'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                <div className="flex items-center justify-center gap-2">
-                  <Zap size={16} />
-                  <span>{selectionMode ? 'Exit' : 'Find'} Path Mode</span>
-                </div>
-              </button>
-
-              {selectionMode && (
-                <div className="mt-3 text-xs text-gray-600">
-                  <p>Click nodes to select them.</p>
-                  <p className="mt-1">
-                    Selected: <span className="font-semibold">{selectedNodeIds.length}</span>
-                  </p>
-                  {selectedNodeIds.length >= 2 && highlightedPath && (
-                    <p className="mt-1 text-blue-600">
-                      Found {highlightedPath.paths.length} path(s)
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {currentSchema && (
-              <div className="p-6">
-                <button
-                  onClick={() => {
-                    if (currentSchema) {
-                      console.log('🔄 Manual refresh requested');
-                      loadLineageGraph(currentSchema.id, Array.from(expandedClasses));
-                    }
-                  }}
-                  className="w-full px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium text-gray-700 transition-colors flex items-center justify-center gap-2"
-                  disabled={loading}
+        {/* Right Sidebar - Details */}
+        <Drawer
+          variant="persistent"
+          anchor="right"
+          open={rightDrawerOpen}
+          sx={{
+            width: 320,
+            flexShrink: 0,
+            '& .MuiDrawer-paper': {
+              width: 320,
+              boxSizing: 'border-box',
+              position: 'relative',
+            },
+          }}
+        >
+          <Box sx={{ p: 2 }}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+              <Typography variant="h6">Lineage Details</Typography>
+              <IconButton size="small" onClick={() => setRightDrawerOpen(false)}>
+                <Close />
+              </IconButton>
+            </Stack>
+            
+            {highlightedNodes.length > 0 ? (
+              <Stack spacing={2}>
+                <Typography variant="body2" color="text.secondary">
+                  Showing lineage for {highlightedNodes.length} nodes
+                </Typography>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={handleClearHighlights}
                 >
-                  <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-                  <span>Refresh Graph</span>
-                </button>
-              </div>
+                  Clear Selection
+                </Button>
+              </Stack>
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                Click an attribute to trace its lineage
+              </Typography>
             )}
+          </Box>
+        </Drawer>
+      </Box>
 
-            {selectedNode && (
-              <div className="p-6 border-t border-gray-200 overflow-y-auto">
-                <h3 className="font-semibold text-gray-900 mb-2">Selected Node</h3>
-                <div className="text-sm space-y-1">
-                  <p className="text-gray-600">
-                    <span className="font-medium">ID:</span> {selectedNode.id}
-                  </p>
-                  <p className="text-gray-600">
-                    <span className="font-medium">Type:</span> {selectedNode.data?.type}
-                  </p>
-                  {selectedNode.data?.schema_id && (
-                    <p className="text-gray-600">
-                      <span className="font-medium">Schema:</span> {selectedNode.data.schema_id}
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+      {/* Data Loader Dialog */}
+      <Drawer
+        anchor="bottom"
+        open={dataLoaderOpen}
+        onClose={() => setDataLoaderOpen(false)}
+        sx={{
+          '& .MuiDrawer-paper': {
+            height: '80vh',
+            p: 3,
+          },
+        }}
+      >
+        <Stack direction="row" justifyContent="space-between" alignItems="center" mb={3}>
+          <Typography variant="h5">Load Data</Typography>
+          <IconButton onClick={() => setDataLoaderOpen(false)}>
+            <Close />
+          </IconButton>
+        </Stack>
+        
+        <FileUploader
+          onFileSelect={handleFileUpload}
+          acceptedFormats={['csv', 'excel', 'json', 'xml']}
+          maxSizeMB={50}
+        />
+      </Drawer>
 
-          <div className="flex-1 relative bg-white">
-            {loading && (
-              <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center z-10">
-                <div className="flex items-center gap-3">
-                  <Loader size={24} className="animate-spin text-blue-600" />
-                  <span className="text-gray-900 font-medium">Loading graph...</span>
-                </div>
-              </div>
-            )}
-
-            {error && (
-              <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-10">
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3 shadow-lg">
-                  <AlertCircle size={20} className="text-red-600" />
-                  <p className="text-red-600">{error}</p>
-                </div>
-              </div>
-            )}
-
-            {!loading && !lineageGraph && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="text-center">
-                  <Database size={48} className="mx-auto mb-4 text-gray-400" />
-                  <p className="text-gray-600 font-medium">No graph data loaded</p>
-                  <p className="text-sm text-gray-500 mt-1">
-                    Click refresh or select a schema
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {lineageGraph && (
-              <EnhancedLineageGraph
-                nodes={lineageGraph.nodes}
-                edges={lineageGraph.edges}
-                highlightedNodes={highlightedPath?.highlighted_nodes || []}
-                highlightedEdges={highlightedPath?.highlighted_edges || []}
-                selectedNodeIds={selectedNodeIds}
-                selectionMode={selectionMode}
-                onNodeClick={handleNodeClick}
-                onToggleExpand={handleToggleExpand}
-              />
-            )}
-          </div>
-        </div>
-      )}
-    </div>
+      {/* Snackbar */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert
+          onClose={handleCloseSnackbar}
+          severity={snackbar.severity}
+          sx={{ width: '100%' }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
+    </Box>
   );
 }
 

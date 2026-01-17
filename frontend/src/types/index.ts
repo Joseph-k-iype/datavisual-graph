@@ -1,7 +1,10 @@
-// frontend/src/types/index.ts - ENHANCED TYPES
+// frontend/src/types/index.ts - Complete types export
+
+// Export all lineage types
+export * from './lineage';
 
 // ============================================
-// CARDINALITY
+// SCHEMA TYPES (from existing codebase)
 // ============================================
 
 export enum Cardinality {
@@ -11,17 +14,11 @@ export enum Cardinality {
   MANY_TO_MANY = 'N:M',
 }
 
-// ============================================
-// SCHEMA DEFINITION TYPES
-// ============================================
-
 export interface SchemaClass {
   id: string;
   name: string;
-  description?: string;
   attributes: string[];
-  color?: string;
-  icon?: string;
+  metadata?: Record<string, any>;
 }
 
 export interface SchemaRelationship {
@@ -30,8 +27,7 @@ export interface SchemaRelationship {
   source_class_id: string;
   target_class_id: string;
   cardinality: Cardinality;
-  description?: string;
-  bidirectional?: boolean;
+  metadata?: Record<string, any>;
 }
 
 export interface SchemaDefinition {
@@ -53,48 +49,11 @@ export interface SchemaCreateRequest {
   relationships: SchemaRelationship[];
 }
 
-export interface SchemaListItem {
-  id: string;
-  name: string;
-  description?: string;
-  version: string;
-  class_count: number;
-  created_at?: string;
-  updated_at?: string;
-}
-
-// ============================================
-// DATA INSTANCE TYPES
-// ============================================
-
-export interface DataInstance {
-  id: string;
-  class_id: string;
-  class_name: string;
-  data: Record<string, any>;
-  source_file?: string;
-  source_row?: number;
-  metadata?: Record<string, any>;
-}
-
-export interface DataRelationship {
-  id: string;
-  schema_relationship_id: string;
-  source_instance_id: string;
-  target_instance_id: string;
-  metadata?: Record<string, any>;
-}
-
 // ============================================
 // DATA LOADING TYPES
 // ============================================
 
-export enum DataFormat {
-  CSV = 'csv',
-  EXCEL = 'excel',
-  JSON = 'json',
-  XML = 'xml',
-}
+export type DataFormat = 'csv' | 'excel' | 'json' | 'xml';
 
 export interface ColumnMapping {
   source_column: string;
@@ -134,7 +93,7 @@ export interface DataLoadResponse {
 }
 
 // ============================================
-// LINEAGE TYPES
+// EXISTING LINEAGE TYPES (for compatibility)
 // ============================================
 
 export interface LineageNode {
@@ -157,14 +116,6 @@ export interface LineageEdge {
   type: 'schema_relationship' | 'data_relationship' | 'parent_child';
   label?: string;
   cardinality?: Cardinality;
-  metadata?: Record<string, any>;
-}
-
-export interface LineageGraphResponse {
-  schema_id: string;
-  schema_name: string;
-  nodes: LineageNode[];
-  edges: LineageEdge[];
   metadata?: Record<string, any>;
 }
 
@@ -220,50 +171,4 @@ export interface FlowEdgeData {
   type: 'schema_relationship' | 'data_relationship' | 'parent_child';
   cardinality?: Cardinality;
   isHighlighted?: boolean;
-}
-
-// ============================================
-// FILE UPLOAD TYPES
-// ============================================
-
-export interface FileUploadState {
-  file: File | null;
-  format: DataFormat | null;
-  preview: any[] | null;
-  columns: string[] | null;
-  sheets?: string[];
-}
-
-export interface MappingState {
-  class_mappings: ClassDataMapping[];
-  relationship_mappings: RelationshipMapping[];
-}
-
-// ============================================
-// UI STATE TYPES
-// ============================================
-
-export interface AppState {
-  currentSchema: SchemaDefinition | null;
-  expandedClasses: Set<string>;
-  selectedNode: string | null;
-  highlightedPath: LineagePathResponse | null;
-  loading: boolean;
-  error: string | null;
-}
-
-// ============================================
-// RESPONSE TYPES
-// ============================================
-
-export interface SuccessResponse {
-  success: boolean;
-  message: string;
-  data?: Record<string, any>;
-}
-
-export interface ErrorResponse {
-  success: boolean;
-  error: string;
-  details?: Record<string, any>;
 }

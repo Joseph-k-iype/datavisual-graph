@@ -1,264 +1,183 @@
-// frontend/src/services/api.ts - COMPLETE API SERVICE WITH ALL PATHS
+// frontend/src/services/api.ts - Complete API Service
 
+import axios, { AxiosInstance } from 'axios';
 import {
   SchemaDefinition,
-  SchemaCreateRequest,
   LineageGraphResponse,
-  LineagePathResponse,
-  LineagePathRequest,
+  AttributeTraceRequest,
+  AttributeTraceResponse,
   DataLoadRequest,
   DataLoadResponse,
   SchemaStats,
+  LineagePathResponse,
+  SchemaCreateRequest,
 } from '../types';
 
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+class APIService {
+  private api: AxiosInstance;
 
-class ApiService {
-  // Schema endpoints
-  async createSchema(request: SchemaCreateRequest): Promise<SchemaDefinition> {
-    const response = await fetch(`${API_BASE_URL}/schemas/`, {
-      method: 'POST',
+  constructor() {
+    this.api = axios.create({
+      baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(request),
     });
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.detail || 'Failed to create schema');
-    }
+    // Add request interceptor for logging
+    this.api.interceptors.request.use(
+      (config) => {
+        console.log(`📤 API Request: ${config.method?.toUpperCase()} ${config.url}`);
+        return config;
+      },
+      (error) => {
+        console.error('❌ API Request Error:', error);
+        return Promise.reject(error);
+      }
+    );
 
-    return response.json();
+    // Add response interceptor for logging
+    this.api.interceptors.response.use(
+      (response) => {
+        console.log(`✅ API Response: ${response.config.url}`, response.data);
+        return response;
+      },
+      (error) => {
+        console.error('❌ API Response Error:', error.response?.data || error.message);
+        return Promise.reject(error);
+      }
+    );
   }
 
-  async listSchemas(): Promise<any[]> {
-    const response = await fetch(`${API_BASE_URL}/schemas/`);
+  // ============================================
+  // SCHEMA OPERATIONS
+  // ============================================
 
-    if (!response.ok) {
-      throw new Error('Failed to list schemas');
-    }
-
-    return response.json();
+  async getSchemas(): Promise<SchemaDefinition[]> {
+    const response = await this.api.get('/schemas');
+    return response.data;
   }
 
   async getSchema(schemaId: string): Promise<SchemaDefinition> {
-    const response = await fetch(`${API_BASE_URL}/schemas/${schemaId}`);
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.detail || 'Failed to get schema');
-    }
-
-    return response.json();
+    const response = await this.api.get(`/schemas/${schemaId}`);
+    return response.data;
   }
 
-  async deleteSchema(schemaId: string): Promise<{ success: boolean; message: string }> {
-    const response = await fetch(`${API_BASE_URL}/schemas/${schemaId}`, {
-      method: 'DELETE',
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.detail || 'Failed to delete schema');
-    }
-
-    return response.json();
+  async createSchema(schema: SchemaCreateRequest): Promise<SchemaDefinition> {
+    const response = await this.api.post('/schemas', schema);
+    return response.data;
   }
 
-  async getSchemaStats(schemaId: string): Promise<SchemaStats> {
-    const response = await fetch(`${API_BASE_URL}/schemas/${schemaId}/stats`);
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.detail || 'Failed to get schema stats');
-    }
-
-    return response.json();
+  async updateSchema(schemaId: string, updates: Partial<SchemaDefinition>): Promise<SchemaDefinition> {
+    const response = await this.api.put(`/schemas/${schemaId}`, updates);
+    return response.data;
   }
+
+  async deleteSchema(schemaId: string): Promise<void> {
+    await this.api.delete(`/schemas/${schemaId}`);
+  }
+
+  // ============================================
+  // LINEAGE OPERATIONS
+  // ============================================
 
   async getLineageGraph(
     schemaId: string,
-    expandedClasses: string[] = []
+    expandedClasses?: string[]
   ): Promise<LineageGraphResponse> {
-    const params = new URLSearchParams();
-    if (expandedClasses.length > 0) {
-      params.append('expanded_classes', expandedClasses.join(','));
-    }
-
-    const url = `${API_BASE_URL}/schemas/${schemaId}/lineage${
-      params.toString() ? '?' + params.toString() : ''
-    }`;
-
-    const response = await fetch(url);
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.detail || 'Failed to get lineage graph');
-    }
-
-    return response.json();
-  }
-
-  async getLineagePath(
-    schemaId: string,
-    request: LineagePathRequest
-  ): Promise<LineagePathResponse> {
-    const response = await fetch(`${API_BASE_URL}/schemas/${schemaId}/lineage/path`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
+    const response = await this.api.get(`/schemas/${schemaId}/lineage`, {
+      params: {
+        expanded_classes: expandedClasses?.join(','),
       },
-      body: JSON.stringify(request),
     });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.detail || 'Failed to get lineage path');
-    }
-
-    return response.json();
+    return response.data;
   }
 
-  async getShortestPath(
-    schemaId: string,
-    nodeIds: string[]
-  ): Promise<LineagePathResponse> {
-    const response = await fetch(`${API_BASE_URL}/schemas/${schemaId}/shortest-path`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ node_ids: nodeIds }),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.detail || 'Failed to find shortest path');
-    }
-
-    return response.json();
-  }
-
-  /**
-   * Find ALL paths between multiple nodes (not just shortest paths)
-   * This includes paths through different intermediate nodes
-   * 
-   * @param schemaId - The schema ID
-   * @param nodeIds - Array of node IDs to find paths between
-   * @param maxDepth - Maximum path length (number of hops), default 10
-   * @returns LineagePathResponse with all discovered paths
-   */
-  async findAllPaths(
+  async findPaths(
     schemaId: string,
     nodeIds: string[],
-    maxDepth: number = 10
+    maxDepth?: number
   ): Promise<LineagePathResponse> {
-    const response = await fetch(`${API_BASE_URL}/schemas/${schemaId}/all-paths`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        node_ids: nodeIds,
-        max_depth: maxDepth,
-      }),
+    const response = await this.api.post(`/schemas/${schemaId}/find-paths`, {
+      node_ids: nodeIds,
+      max_depth: maxDepth || 10,
     });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.detail || 'Failed to find all paths');
-    }
-
-    return response.json();
+    return response.data;
   }
 
-  /**
-   * Preview file contents before loading
-   * Reads first few rows and extracts column names
-   * 
-   * @param file - File to preview
-   * @returns Preview data with columns and sample rows
-   */
-  async previewFile(file: File): Promise<{ columns: string[]; preview: any[] }> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      
-      reader.onload = (e) => {
-        try {
-          const content = e.target?.result as string;
-          
-          if (file.name.endsWith('.csv')) {
-            // Parse CSV
-            const lines = content.split('\n').filter(line => line.trim());
-            if (lines.length === 0) {
-              reject(new Error('Empty file'));
-              return;
-            }
-            
-            const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-            const preview = lines.slice(1, 6).map(line => {
-              const values = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-              const row: any = {};
-              headers.forEach((header, i) => {
-                row[header] = values[i] || '';
-              });
-              return row;
-            });
-            
-            resolve({ columns: headers, preview });
-          } else if (file.name.endsWith('.json')) {
-            // Parse JSON
-            const data = JSON.parse(content);
-            const array = Array.isArray(data) ? data : [data];
-            
-            if (array.length === 0) {
-              reject(new Error('Empty JSON array'));
-              return;
-            }
-            
-            const columns = Object.keys(array[0]);
-            const preview = array.slice(0, 5);
-            
-            resolve({ columns, preview });
-          } else {
-            reject(new Error('Unsupported file format for preview'));
-          }
-        } catch (err) {
-          reject(err instanceof Error ? err : new Error('Failed to parse file'));
-        }
-      };
-      
-      reader.onerror = () => {
-        reject(new Error('Failed to read file'));
-      };
-      
-      reader.readAsText(file);
-    });
+  async getSchemaStats(schemaId: string): Promise<SchemaStats> {
+    const response = await this.api.get(`/schemas/${schemaId}/stats`);
+    return response.data;
   }
+
+  // ============================================
+  // ATTRIBUTE LINEAGE
+  // ============================================
+
+  async traceAttributeLineage(
+    request: AttributeTraceRequest
+  ): Promise<AttributeTraceResponse> {
+    const response = await this.api.post('/lineage/attribute/trace', request);
+    return response.data;
+  }
+
+  async getAttributeFlows(schemaId: string): Promise<any> {
+    const response = await this.api.get(`/schemas/${schemaId}/attribute-flows`);
+    return response.data;
+  }
+
+  // ============================================
+  // DATA LOADING
+  // ============================================
 
   async loadData(
     schemaId: string,
     file: File,
-    mapping: any
+    mapping: DataLoadRequest
   ): Promise<DataLoadResponse> {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('mapping', JSON.stringify(mapping));
 
-    const response = await fetch(`${API_BASE_URL}/schemas/${schemaId}/load-data`, {
-      method: 'POST',
-      body: formData,
+    const response = await this.api.post(
+      `/schemas/${schemaId}/load-data`,
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      }
+    );
+    return response.data;
+  }
+
+  async parseFile(file: File, format: string): Promise<{
+    data: any[];
+    columns: string[];
+    preview: any[];
+    data_types: Record<string, string>;
+  }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('format', format);
+
+    const response = await this.api.post('/data/parse', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
     });
+    
+    return response.data;
+  }
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.detail || 'Failed to load data');
-    }
+  // ============================================
+  // HEALTH CHECK
+  // ============================================
 
-    return response.json();
+  async healthCheck(): Promise<{ status: string; database: string }> {
+    const response = await this.api.get('/health');
+    return response.data;
   }
 }
 
-const apiService = new ApiService();
-export default apiService;
+export default new APIService();
