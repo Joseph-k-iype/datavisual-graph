@@ -1,4 +1,4 @@
-// frontend/src/services/api.ts - Complete API Service
+// frontend/src/services/api.ts - UPDATED with multi-file support
 
 import axios, { AxiosInstance } from 'axios';
 import {
@@ -13,6 +13,20 @@ import {
   SchemaCreateRequest,
 } from '../types';
 
+interface SchemaInferenceResponse {
+  suggested_name: string;
+  description: string;
+  classes: any[];
+  relationships: any[];
+  confidence_score?: number;
+  warnings?: string[];
+  metadata?: {
+    source_files?: string[];
+    total_rows?: number;
+    inference_timestamp?: string;
+  };
+}
+
 class APIService {
   private api: AxiosInstance;
 
@@ -24,7 +38,6 @@ class APIService {
       },
     });
 
-    // Add request interceptor for logging
     this.api.interceptors.request.use(
       (config) => {
         console.log(`📤 API Request: ${config.method?.toUpperCase()} ${config.url}`);
@@ -36,7 +49,6 @@ class APIService {
       }
     );
 
-    // Add response interceptor for logging
     this.api.interceptors.response.use(
       (response) => {
         console.log(`✅ API Response: ${response.config.url}`, response.data);
@@ -75,6 +87,48 @@ class APIService {
 
   async deleteSchema(schemaId: string): Promise<void> {
     await this.api.delete(`/schemas/${schemaId}`);
+  }
+
+  /**
+   * Infer schema from single file
+   */
+  async inferSchema(file: File, format: string): Promise<SchemaInferenceResponse> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('format', format);
+
+    const response = await this.api.post('/schemas/infer', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  }
+
+  /**
+   * Infer unified schema from multiple files using FalkorDB
+   */
+  async inferSchemaMulti(files: File[], formats: string[]): Promise<SchemaInferenceResponse> {
+    console.log(`🔍 Inferring schema from ${files.length} files:`, files.map(f => f.name));
+    
+    const formData = new FormData();
+    
+    // Append all files
+    files.forEach(file => {
+      formData.append('files', file);
+    });
+    
+    // Append formats as JSON string
+    formData.append('formats', JSON.stringify(formats));
+
+    const response = await this.api.post('/schemas/infer-multi', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    
+    console.log('✅ Multi-file inference result:', response.data);
+    return response.data;
   }
 
   // ============================================

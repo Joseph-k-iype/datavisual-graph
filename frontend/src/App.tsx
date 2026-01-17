@@ -1,6 +1,5 @@
-// frontend/src/App.tsx - FIXED (no hierarchy error)
-
-import React, { useState, useCallback, useEffect } from 'react';
+// frontend/src/App.tsx - ERRORS FIXED
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   Box,
   AppBar,
@@ -10,21 +9,23 @@ import {
   IconButton,
   Drawer,
   Stack,
+  Snackbar,
   Alert,
   CircularProgress,
-  Snackbar,
 } from '@mui/material';
 import {
   Menu as MenuIcon,
-  Add,
   Upload,
   Refresh,
-  Close,
+  Home,
+  Close,  // ← ADDED: Import Close icon
 } from '@mui/icons-material';
-import { Node as FlowNode } from 'reactflow';
+import { Node } from 'reactflow';
 
 import { LineageCanvas } from './components/lineage/LineageCanvas';
 import { HierarchyTreeComponent } from './components/lineage/HierarchyTree';
+import { SchemaLanding } from './components/schema/SchemaLanding';
+import { SchemaBuilder } from './components/schema/SchemaBuilder';
 import { FileUploader, FileFormat } from './components/data/FileUploader';
 import { useLineageGraph } from './hooks/useLineageGraph';
 import apiService from './services/api';
@@ -33,14 +34,24 @@ import {
   DataLoadRequest,
   ClassDataMapping,
   ColumnMapping,
+  HierarchyTree,
+  HierarchyNode,
 } from './types';
 
-type AppView = 'landing' | 'visualization';
+type AppView = 'landing' | 'schema-builder' | 'visualization';
 
 interface SnackbarState {
   open: boolean;
   message: string;
   severity: 'success' | 'error' | 'info' | 'warning';
+}
+
+interface InferredSchema {
+  name: string;
+  description: string;
+  classes: any[];
+  relationships: any[];
+  sourceFile: string;
 }
 
 function App() {
@@ -55,6 +66,7 @@ function App() {
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [highlightedNodes, setHighlightedNodes] = useState<string[]>([]);
   const [highlightedEdges, setHighlightedEdges] = useState<string[]>([]);
+  const [inferredSchema, setInferredSchema] = useState<InferredSchema | null>(null);
   const [snackbar, setSnackbar] = useState<SnackbarState>({
     open: false,
     message: '',
@@ -68,107 +80,241 @@ function App() {
     },
   });
 
+  // Build hierarchy tree from graph
+  const hierarchyTree = useMemo<HierarchyTree | null>(() => {
+    if (!graph || !graph.nodes || graph.nodes.length === 0) {
+      return null;
+    }
+
+    try {
+      // Build parent-child map from edges
+      const parentMap = new Map<string, string>();
+      const childrenMap = new Map<string, string[]>();
+
+      graph.edges.forEach(edge => {
+        // ← FIXED: Check for 'schema' type instead of 'schema_relationship'
+        if (edge.type === 'schema' || edge.type === 'hierarchy') {
+          parentMap.set(edge.target, edge.source);
+          if (!childrenMap.has(edge.source)) {
+            childrenMap.set(edge.source, []);
+          }
+          childrenMap.get(edge.source)!.push(edge.target);
+        }
+      });
+
+      // Find root nodes (no parent)
+      const rootNodeIds = graph.nodes
+        .filter(node => !parentMap.has(node.id))
+        .map(node => node.id);
+
+      // Build hierarchy recursively
+      const buildHierarchyNode = (nodeId: string, level: number): HierarchyNode => {
+        const graphNode = graph.nodes.find(n => n.id === nodeId);
+        if (!graphNode) {
+          throw new Error(`Node ${nodeId} not found`);
+        }
+
+        const children = (childrenMap.get(nodeId) || [])
+          .map(childId => buildHierarchyNode(childId, level + 1));
+
+        return {
+          id: nodeId,
+          name: graphNode.name,
+          display_name: graphNode.display_name || graphNode.name,
+          type: 'class',
+          level,
+          parent_id: parentMap.get(nodeId),
+          children,
+          attributes: graphNode.data?.attributes || [],
+          instance_count: graphNode.instance_count || 0,
+          collapsed: graphNode.collapsed || false,
+          metadata: graphNode.metadata || {},
+        };
+      };
+
+      const rootNodes = rootNodeIds.map(id => buildHierarchyNode(id, 0));
+
+      const maxDepth = Math.max(...graph.nodes.map(n => n.level || 0), 0);
+
+      return {
+        schema_id: graph.schema_id,
+        root_nodes: rootNodes,
+        max_depth: maxDepth + 1,
+        total_nodes: graph.nodes.length,
+        metadata: {},
+      };
+    } catch (error) {
+      console.error('Failed to build hierarchy tree:', error);
+      return null;
+    }
+  }, [graph]);
+
   // Load schemas on mount
   useEffect(() => {
     loadSchemas();
   }, []);
 
-  // Load schemas
+  // Helper functions
+  const showSnackbar = useCallback(
+    (message: string, severity: SnackbarState['severity'] = 'info') => {
+      setSnackbar({ open: true, message, severity });
+    },
+    []
+  );
+
+  const handleCloseSnackbar = useCallback(() => {
+    setSnackbar((prev) => ({ ...prev, open: false }));
+  }, []);
+
   const loadSchemas = useCallback(async () => {
     try {
       setLoading(true);
       const data = await apiService.getSchemas();
       setSchemas(data);
-      
-      // Auto-select first schema if available
-      if (data.length > 0 && !currentSchema) {
-        await handleSelectSchema(data[0]);
-      }
     } catch (error) {
       showSnackbar('Failed to load schemas', 'error');
+      console.error(error);
     } finally {
       setLoading(false);
     }
-  }, [currentSchema]);
+  }, [showSnackbar]);
 
-  // Select schema
-  const handleSelectSchema = useCallback(async (schema: SchemaDefinition) => {
+  // Navigation handlers
+  const handleBackToLanding = useCallback(() => {
+    setView('landing');
+    setCurrentSchema(null);
+    setInferredSchema(null);
+    loadSchemas();
+  }, [loadSchemas]);
+
+  const handleSchemaSelect = useCallback(async (schema: SchemaDefinition) => {
     try {
       setLoading(true);
       setCurrentSchema(schema);
+      
+      console.log('📊 Loading graph for schema:', schema.id);
       await loadGraph(schema.id);
+      
       setView('visualization');
-      showSnackbar(`Loaded schema: ${schema.name}`, 'success');
-    } catch (error) {
-      showSnackbar('Failed to load schema', 'error');
+      setLeftDrawerOpen(true);
+      
+      showSnackbar('Schema loaded successfully', 'success');
+    } catch (error: any) {
+      showSnackbar(error.response?.data?.detail || 'Failed to load schema visualization', 'error');
+      console.error(error);
     } finally {
       setLoading(false);
     }
-  }, [loadGraph]);
+  }, [loadGraph, showSnackbar]);
 
-  // Refresh current schema
-  const handleRefresh = useCallback(async () => {
-    if (currentSchema) {
-      try {
-        setLoading(true);
-        await loadGraph(currentSchema.id);
-        showSnackbar('Schema refreshed', 'success');
-      } catch (error) {
-        showSnackbar('Failed to refresh schema', 'error');
-      } finally {
-        setLoading(false);
-      }
-    }
-  }, [currentSchema, loadGraph]);
-
-  // Handle node click
-  const handleNodeClick = useCallback((node: FlowNode) => {
-    console.log('Node clicked:', node);
-    setSelectedNodeIds([node.id]);
+  const handleCreateNewSchema = useCallback(() => {
+    setView('schema-builder');
+    setInferredSchema(null);
   }, []);
 
-  // Handle attribute click
-  const handleAttributeClick = useCallback(async (attributeId: string, nodeId: string) => {
-    console.log('Attribute clicked:', attributeId, 'in node:', nodeId);
-    
+  const handleFileUploadForInference = useCallback(async (files: File[], formats: FileFormat[]) => {
     try {
       setLoading(true);
-      const trace = await apiService.traceAttributeLineage({
-        attribute_id: attributeId,
-        direction: 'both',
-        max_depth: 10,
-      });
       
-      setHighlightedNodes(trace.highlighted_nodes);
-      setHighlightedEdges(trace.highlighted_edges);
-      setRightDrawerOpen(true);
-      showSnackbar('Attribute lineage traced', 'success');
-    } catch (error) {
-      showSnackbar('Failed to trace attribute lineage', 'error');
+      if (files.length === 1) {
+        showSnackbar('Analyzing file and inferring schema...', 'info');
+        const result = await apiService.inferSchema(files[0], formats[0]);
+        
+        setInferredSchema({
+          name: result.suggested_name || `Schema from ${files[0].name}`,
+          description: result.description || `Auto-generated schema from ${formats[0].toUpperCase()} file`,
+          classes: result.classes,
+          relationships: result.relationships,
+          sourceFile: files[0].name,
+        });
+      } else {
+        showSnackbar(
+          `🔍 Analyzing ${files.length} files using FalkorDB to detect cross-file relationships...`,
+          'info'
+        );
+        
+        const result = await apiService.inferSchemaMulti(files, formats);
+        
+        setInferredSchema({
+          name: result.suggested_name || `Unified Schema (${files.length} files)`,
+          description: result.description || `Auto-generated unified schema from ${files.length} files`,
+          classes: result.classes,
+          relationships: result.relationships,
+          sourceFile: files.map(f => f.name).join(', '),
+        });
+        
+        if (result.metadata?.source_files) {
+          console.log('📊 Multi-file inference metadata:', result.metadata);
+        }
+      }
+
+      setView('schema-builder');
+      showSnackbar(
+        files.length === 1 
+          ? 'Schema inferred successfully!' 
+          : `✨ Unified schema inferred from ${files.length} files with cross-file relationships!`,
+        'success'
+      );
+    } catch (error: any) {
+      showSnackbar(error.response?.data?.detail || 'Failed to infer schema', 'error');
+      console.error(error);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showSnackbar]);
 
-  // Handle file upload
-  const handleFileUpload = useCallback(async (file: File, format: FileFormat) => {
+  const handleSchemaCreated = useCallback(async (schema: SchemaDefinition) => {
+    console.log('✅ Schema created:', schema);
+    showSnackbar('Schema created successfully! Loading visualization...', 'success');
+    
+    await loadSchemas();
+    
+    // Small delay to ensure schema is fully saved
+    setTimeout(() => {
+      handleSchemaSelect(schema);
+    }, 500);
+  }, [loadSchemas, handleSchemaSelect, showSnackbar]);
+
+  const handleSchemaDelete = useCallback(async (schemaId: string) => {
+    try {
+      setLoading(true);
+      await apiService.deleteSchema(schemaId);
+      showSnackbar('Schema deleted successfully', 'success');
+      await loadSchemas();
+      if (currentSchema?.id === schemaId) {
+        handleBackToLanding();
+      }
+    } catch (error) {
+      showSnackbar('Failed to delete schema', 'error');
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  }, [currentSchema, loadSchemas, showSnackbar, handleBackToLanding]);
+
+  // Data loading handlers
+  const handleFileUpload = useCallback(async (files: File[], formats: FileFormat[]) => {
     if (!currentSchema) {
       showSnackbar('No schema selected', 'error');
       return;
     }
 
+    if (files.length === 0) {
+      showSnackbar('No file selected', 'error');
+      return;
+    }
+
+    const file = files[0];
+    const format = formats[0];
+
     try {
       setLoading(true);
       
-      // Parse file
       const parsed = await apiService.parseFile(file, format);
-      console.log('Parsed file:', parsed);
       
-      // Auto-map columns to attributes (simple 1:1 mapping by name)
       const classMappings: ClassDataMapping[] = currentSchema.classes.map(cls => {
         const columnMappings: ColumnMapping[] = cls.attributes
           .map(attr => {
-            // Try to find matching column by name
             const matchingColumn = parsed.columns.find(col => 
               col.toLowerCase() === attr.toLowerCase()
             );
@@ -191,11 +337,9 @@ function App() {
 
       if (classMappings.length === 0) {
         showSnackbar('No matching columns found for any class', 'warning');
-        setLoading(false);
         return;
       }
 
-      // Create load request
       const loadRequest: DataLoadRequest = {
         schema_id: currentSchema.id,
         format,
@@ -203,7 +347,6 @@ function App() {
         class_mappings: classMappings,
       };
 
-      // Load data
       const result = await apiService.loadData(currentSchema.id, file, loadRequest);
       
       if (result.success) {
@@ -211,247 +354,225 @@ function App() {
           `Loaded ${result.instances_created} instances, ${result.relationships_created} relationships`,
           'success'
         );
+        await loadGraph(currentSchema.id);
         setDataLoaderOpen(false);
-        await handleRefresh();
       } else {
-        showSnackbar(`Load failed: ${result.errors.join(', ')}`, 'error');
+        showSnackbar('Data loading completed with errors', 'warning');
       }
-    } catch (error) {
-      showSnackbar('Failed to load data', 'error');
+    } catch (error: any) {
+      showSnackbar(error.response?.data?.detail || 'Failed to load data', 'error');
+      console.error(error);
     } finally {
       setLoading(false);
     }
-  }, [currentSchema, handleRefresh]);
+  }, [currentSchema, loadGraph, showSnackbar]);
 
-  // Show snackbar
-  const showSnackbar = useCallback(
-    (message: string, severity: SnackbarState['severity']) => {
-      setSnackbar({ open: true, message, severity });
-    },
-    []
-  );
+  const handleRefresh = useCallback(async () => {
+    if (view === 'landing') {
+      await loadSchemas();
+    } else if (view === 'visualization' && currentSchema) {
+      await loadGraph(currentSchema.id);
+    }
+  }, [view, currentSchema, loadSchemas, loadGraph]);
 
-  // Close snackbar
-  const handleCloseSnackbar = useCallback(() => {
-    setSnackbar(prev => ({ ...prev, open: false }));
+  const handleNodeClick = useCallback((node: Node) => {
+    setSelectedNodeIds([node.id]);
   }, []);
 
-  // Clear highlights
-  const handleClearHighlights = useCallback(() => {
-    setHighlightedNodes([]);
-    setHighlightedEdges([]);
-  }, []);
-
-  // Landing view
-  if (view === 'landing' || !currentSchema) {
-    return (
-      <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-        {/* Top Bar */}
-        <AppBar position="static">
-          <Toolbar>
-            <Typography variant="h6" sx={{ flexGrow: 1 }}>
-              Data Lineage Dashboard
-            </Typography>
-          </Toolbar>
-        </AppBar>
-
-        {/* Content */}
-        <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 3 }}>
-          <Stack spacing={3} alignItems="center" maxWidth={600}>
-            <Typography variant="h3" fontWeight={600} textAlign="center">
-              Enterprise Data Lineage
-            </Typography>
-            <Typography variant="body1" color="text.secondary" textAlign="center">
-              Visualize and trace data flows across your entire data ecosystem with
-              fine-grain column-level lineage tracking.
-            </Typography>
-
-            {loading ? (
-              <CircularProgress />
-            ) : schemas.length > 0 ? (
-              <Stack spacing={2} sx={{ width: '100%' }}>
-                <Typography variant="subtitle1" fontWeight={600}>
-                  Select a Schema:
-                </Typography>
-                {schemas.map(schema => (
-                  <Button
-                    key={schema.id}
-                    variant="outlined"
-                    size="large"
-                    onClick={() => handleSelectSchema(schema)}
-                    sx={{ justifyContent: 'flex-start' }}
-                  >
-                    <Box sx={{ textAlign: 'left' }}>
-                      <Typography variant="subtitle2">{schema.name}</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {schema.classes.length} classes, {schema.relationships.length} relationships
-                      </Typography>
-                    </Box>
-                  </Button>
-                ))}
-              </Stack>
-            ) : (
-              <Alert severity="info">
-                No schemas found. Create a schema to get started.
-              </Alert>
-            )}
-
-            <Button
-              variant="contained"
-              startIcon={<Add />}
-              size="large"
-              onClick={loadSchemas}
-            >
-              Reload Schemas
-            </Button>
-          </Stack>
+  // Render different views
+  const renderView = () => {
+    if (loading && view === 'landing') {
+      return (
+        <Box display="flex" justifyContent="center" alignItems="center" height="100%">
+          <CircularProgress />
         </Box>
-      </Box>
-    );
-  }
+      );
+    }
 
-  // Main visualization view
+    switch (view) {
+      case 'landing':
+        return (
+          <SchemaLanding
+            schemas={schemas}
+            onSchemaSelect={handleSchemaSelect}
+            onCreateNew={handleCreateNewSchema}
+            onUploadData={handleFileUploadForInference}
+            onDeleteSchema={handleSchemaDelete}
+            loading={loading}
+          />
+        );
+      
+      case 'schema-builder':
+        return (
+          <SchemaBuilder
+            inferredSchema={inferredSchema}
+            onSchemaCreated={handleSchemaCreated}
+            onCancel={handleBackToLanding}
+          />
+        );
+      
+      case 'visualization':
+        return (
+          <Box sx={{ display: 'flex', height: '100%' }}>
+            {/* Left Drawer - Hierarchy */}
+            <Drawer
+              variant="persistent"
+              anchor="left"
+              open={leftDrawerOpen}
+              sx={{
+                width: 320,
+                flexShrink: 0,
+                '& .MuiDrawer-paper': {
+                  width: 320,
+                  position: 'relative',
+                  height: '100%',
+                  borderRight: '1px solid',
+                  borderColor: 'divider',
+                },
+              }}
+            >
+              {hierarchyTree ? (
+                <HierarchyTreeComponent
+                  hierarchy={hierarchyTree}
+                  onNodeSelect={(nodeId) => setSelectedNodeIds([nodeId])}
+                  showAttributes={true}
+                  showInstanceCounts={true}
+                />
+              ) : (
+                <Box sx={{ p: 2 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Loading hierarchy...
+                  </Typography>
+                </Box>
+              )}
+            </Drawer>
+
+            {/* Main Canvas */}
+            <Box sx={{ flexGrow: 1, position: 'relative', height: '100%' }}>
+              {graphLoading ? (
+                <Box display="flex" justifyContent="center" alignItems="center" height="100%">
+                  <CircularProgress />
+                </Box>
+              ) : graph && graph.nodes.length > 0 ? (
+                <LineageCanvas
+                  graph={graph}
+                  onNodeClick={handleNodeClick}
+                  showAttributes={true}
+                  highlightedNodes={highlightedNodes}
+                  highlightedEdges={highlightedEdges}
+                />
+              ) : (
+                <Box display="flex" justifyContent="center" alignItems="center" height="100%">
+                  <Stack spacing={2} alignItems="center">
+                    <Typography variant="h6" color="text.secondary">
+                      No data to display
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {currentSchema 
+                        ? 'Schema created successfully! The graph will appear after data is loaded.'
+                        : 'Select a schema to view its lineage.'}
+                    </Typography>
+                  </Stack>
+                </Box>
+              )}
+            </Box>
+
+            {/* Right Drawer - Details */}
+            <Drawer
+              anchor="right"
+              open={rightDrawerOpen}
+              onClose={() => setRightDrawerOpen(false)}
+              sx={{
+                width: 400,
+                flexShrink: 0,
+                '& .MuiDrawer-paper': {
+                  width: 400,
+                  position: 'relative',
+                  height: '100%',
+                },
+              }}
+            >
+              <Box sx={{ p: 2 }}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+                  <Typography variant="h6">Details</Typography>
+                  <IconButton onClick={() => setRightDrawerOpen(false)}>
+                    <Close />
+                  </IconButton>
+                </Stack>
+                {highlightedNodes.length > 0 && (
+                  <Stack spacing={2}>
+                    <Typography variant="body2" color="text.secondary">
+                      Showing lineage for {highlightedNodes.length} nodes
+                    </Typography>
+                  </Stack>
+                )}
+              </Box>
+            </Drawer>
+          </Box>
+        );
+      
+      default:
+        return null;
+    }
+  };
+
   return (
-    <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      {/* Top Bar */}
-      <AppBar position="static">
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+      {/* App Bar */}
+      <AppBar position="static" elevation={1}>
         <Toolbar>
-          <IconButton
-            edge="start"
-            color="inherit"
-            onClick={() => setLeftDrawerOpen(!leftDrawerOpen)}
-          >
-            <MenuIcon />
-          </IconButton>
-          <Typography variant="h6" sx={{ flexGrow: 1, ml: 2 }}>
-            {currentSchema.name}
-          </Typography>
-          
-          {highlightedNodes.length > 0 && (
-            <Button
+          {view === 'visualization' && (
+            <IconButton
+              edge="start"
               color="inherit"
-              startIcon={<Close />}
-              onClick={handleClearHighlights}
+              onClick={() => setLeftDrawerOpen(!leftDrawerOpen)}
               sx={{ mr: 2 }}
             >
-              Clear Highlights ({highlightedNodes.length})
-            </Button>
+              <MenuIcon />
+            </IconButton>
           )}
+          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
+            {view === 'landing' && 'Data Lineage - Schemas'}
+            {view === 'schema-builder' && 'Schema Builder'}
+            {view === 'visualization' && currentSchema && `${currentSchema.name} - Lineage Visualization`}
+          </Typography>
 
-          <Button
-            color="inherit"
-            startIcon={<Upload />}
-            onClick={() => setDataLoaderOpen(true)}
-            sx={{ mr: 2 }}
-          >
-            Load Data
-          </Button>
-          
-          <IconButton
-            color="inherit"
-            onClick={handleRefresh}
-            disabled={loading || graphLoading}
-          >
-            {loading || graphLoading ? <CircularProgress size={24} color="inherit" /> : <Refresh />}
-          </IconButton>
+          <Stack direction="row" spacing={1}>
+            {view !== 'landing' && (
+              <Button
+                color="inherit"
+                startIcon={<Home />}
+                onClick={handleBackToLanding}
+              >
+                Back to Schemas
+              </Button>
+            )}
+            
+            {view === 'visualization' && (
+              <>
+                <Button
+                  color="inherit"
+                  startIcon={<Upload />}
+                  onClick={() => setDataLoaderOpen(true)}
+                >
+                  Load Data
+                </Button>
+                <Button
+                  color="inherit"
+                  startIcon={<Refresh />}
+                  onClick={handleRefresh}
+                >
+                  Refresh
+                </Button>
+              </>
+            )}
+          </Stack>
         </Toolbar>
       </AppBar>
 
       {/* Main Content */}
-      <Box sx={{ flexGrow: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* Left Sidebar - Hierarchy */}
-        <Drawer
-          variant="persistent"
-          anchor="left"
-          open={leftDrawerOpen}
-          sx={{
-            width: 320,
-            flexShrink: 0,
-            '& .MuiDrawer-paper': {
-              width: 320,
-              boxSizing: 'border-box',
-              position: 'relative',
-            },
-          }}
-        >
-          <HierarchyTreeComponent
-            hierarchy={null}
-            selectedNodeId={selectedNodeIds[0]}
-            onNodeSelect={(nodeId) => setSelectedNodeIds([nodeId])}
-            onAttributeClick={handleAttributeClick}
-            showAttributes={true}
-            showInstanceCounts={true}
-          />
-        </Drawer>
-
-        {/* Main Canvas */}
-        <Box sx={{ flexGrow: 1, position: 'relative' }}>
-          {graphLoading ? (
-            <Box
-              sx={{
-                height: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <CircularProgress size={60} />
-            </Box>
-          ) : (
-            <LineageCanvas
-              graph={graph}
-              onNodeClick={handleNodeClick}
-              onAttributeClick={handleAttributeClick}
-              showAttributes={true}
-              highlightedNodes={highlightedNodes}
-              highlightedEdges={highlightedEdges}
-            />
-          )}
-        </Box>
-
-        {/* Right Sidebar - Details */}
-        <Drawer
-          variant="persistent"
-          anchor="right"
-          open={rightDrawerOpen}
-          sx={{
-            width: 320,
-            flexShrink: 0,
-            '& .MuiDrawer-paper': {
-              width: 320,
-              boxSizing: 'border-box',
-              position: 'relative',
-            },
-          }}
-        >
-          <Box sx={{ p: 2 }}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-              <Typography variant="h6">Lineage Details</Typography>
-              <IconButton size="small" onClick={() => setRightDrawerOpen(false)}>
-                <Close />
-              </IconButton>
-            </Stack>
-            
-            {highlightedNodes.length > 0 ? (
-              <Stack spacing={2}>
-                <Typography variant="body2" color="text.secondary">
-                  Showing lineage for {highlightedNodes.length} nodes
-                </Typography>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  onClick={handleClearHighlights}
-                >
-                  Clear Selection
-                </Button>
-              </Stack>
-            ) : (
-              <Typography variant="body2" color="text.secondary">
-                Click an attribute to trace its lineage
-              </Typography>
-            )}
-          </Box>
-        </Drawer>
+      <Box sx={{ flexGrow: 1, overflow: 'hidden' }}>
+        {renderView()}
       </Box>
 
       {/* Data Loader Dialog */}
@@ -477,6 +598,7 @@ function App() {
           onFileSelect={handleFileUpload}
           acceptedFormats={['csv', 'excel', 'json', 'xml']}
           maxSizeMB={50}
+          multiFile={false}
         />
       </Drawer>
 
