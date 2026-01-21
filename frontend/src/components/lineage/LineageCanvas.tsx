@@ -1,6 +1,6 @@
-// frontend/src/components/lineage/LineageCanvas.tsx - FIXED (position error)
+// frontend/src/components/lineage/LineageCanvas.tsx - FIXED infinite loop with lazy loading
 
-import React, { useCallback, useMemo, useEffect, useState } from 'react';
+import React, { useCallback, useMemo, useEffect, useState, useRef } from 'react';
 import ReactFlow, {
   Node,
   Edge,
@@ -69,7 +69,7 @@ const EDGE_TYPES = {
 };
 
 // ============================================
-// HELPER FUNCTIONS
+// HELPER FUNCTIONS - MEMOIZED
 // ============================================
 
 function convertToFlowNodes(
@@ -78,13 +78,9 @@ function convertToFlowNodes(
   showAttributes: boolean = true,
   onAttributeClick?: (attributeId: string, nodeId: string) => void
 ): Node[] {
-  console.log('📦 Converting nodes:', lineageNodes);
-  
   return lineageNodes.map((node, index) => {
-    // Ensure position exists with valid x and y
-    const position = node.position || { x: 0, y: 0 };
+    const position = node.position || { x: index * 300, y: node.level * 200 };
     
-    // Validate position has x and y
     if (typeof position.x !== 'number' || typeof position.y !== 'number') {
       console.warn(`⚠️ Invalid position for node ${node.id}, using default`);
       position.x = index * 300;
@@ -119,7 +115,6 @@ function convertToFlowNodes(
       },
     };
 
-    console.log(`  ✅ Node ${node.id} at (${flowNode.position.x}, ${flowNode.position.y})`);
     return flowNode;
   });
 }
@@ -172,9 +167,11 @@ const LineageCanvasInner: React.FC<LineageCanvasProps> = ({
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const { fitView, zoomIn, zoomOut } = useReactFlow();
-  const [initialized, setInitialized] = useState(false);
+  
+  // FIXED: Use ref to track if we've already loaded this graph
+  const loadedGraphId = useRef<string | null>(null);
 
-  // Stats
+  // Stats computed from nodes/edges state
   const stats = useMemo(
     () => ({
       totalNodes: nodes.length,
@@ -185,17 +182,25 @@ const LineageCanvasInner: React.FC<LineageCanvasProps> = ({
     [nodes, edges]
   );
 
-  // Convert lineage data to React Flow format
+  // FIXED: Convert and load graph data only when graph changes
+  // Using useEffect with ONLY graph.schema_id as dependency to prevent infinite loops
   useEffect(() => {
     if (!graph || !graph.nodes.length) {
-      console.log('⚠️ No graph data');
+      console.log('⚠️ No graph data available');
       setNodes([]);
       setEdges([]);
-      setInitialized(false);
+      loadedGraphId.current = null;
       return;
     }
 
-    console.log('🔄 Converting lineage graph:', {
+    // FIXED: Only reload if this is a new graph
+    if (loadedGraphId.current === graph.schema_id) {
+      console.log('✅ Graph already loaded, skipping conversion');
+      return;
+    }
+
+    console.log('🔄 Loading new graph:', {
+      schema_id: graph.schema_id,
       nodes: graph.nodes.length,
       edges: graph.edges.length,
     });
@@ -207,12 +212,8 @@ const LineageCanvasInner: React.FC<LineageCanvasProps> = ({
         showAttributes,
         onAttributeClick
       );
+      
       const flowEdges = convertToFlowEdges(graph.edges, highlightedEdges);
-
-      console.log('✅ Converted to React Flow:', {
-        nodes: flowNodes.length,
-        edges: flowEdges.length,
-      });
 
       // Validate all nodes have positions
       const invalidNodes = flowNodes.filter(
@@ -220,39 +221,58 @@ const LineageCanvasInner: React.FC<LineageCanvasProps> = ({
       );
       
       if (invalidNodes.length > 0) {
-        console.error('❌ Invalid nodes found:', invalidNodes);
+        console.error('❌ Invalid nodes found:', invalidNodes.map(n => n.id));
         return;
       }
 
+      console.log('✅ Converted to React Flow:', {
+        nodes: flowNodes.length,
+        edges: flowEdges.length,
+      });
+
+      // FIXED: Set nodes and edges once
       setNodes(flowNodes);
       setEdges(flowEdges);
-      setInitialized(true);
+      loadedGraphId.current = graph.schema_id;
+
+      // Fit view after a short delay to ensure rendering is complete
+      setTimeout(() => {
+        fitView({ padding: 0.15, duration: 400 });
+        console.log('✅ View fitted for graph:', graph.schema_id);
+      }, 150);
+      
     } catch (error) {
       console.error('❌ Error converting graph:', error);
     }
-  }, [
-    graph,
-    highlightedNodes,
-    highlightedEdges,
-    showAttributes,
-    onAttributeClick,
-    setNodes,
-    setEdges,
-  ]);
+  }, [graph?.schema_id]); // FIXED: Only depend on schema_id
 
-  // Fit view after initialization
+  // FIXED: Separate effect for highlighting changes (no re-conversion)
   useEffect(() => {
-    if (initialized && nodes.length > 0) {
-      setTimeout(() => {
-        try {
-          fitView({ padding: 0.15, duration: 400 });
-          console.log('✅ View fitted');
-        } catch (error) {
-          console.error('❌ fitView failed:', error);
-        }
-      }, 100);
-    }
-  }, [initialized, nodes.length, fitView]);
+    if (!graph || nodes.length === 0) return;
+
+    // Update highlighted state on existing nodes without full re-conversion
+    setNodes((nds) =>
+      nds.map((node) => ({
+        ...node,
+        data: {
+          ...node.data,
+          highlighted: highlightedNodes.includes(node.id),
+        },
+      }))
+    );
+
+    setEdges((eds) =>
+      eds.map((edge) => ({
+        ...edge,
+        animated: highlightedEdges.includes(edge.id) || edge.animated,
+        style: {
+          ...edge.style,
+          stroke: highlightedEdges.includes(edge.id) ? '#ffc107' : edge.style?.stroke || '#64b5f6',
+          strokeWidth: highlightedEdges.includes(edge.id) ? 3 : edge.style?.strokeWidth || 2,
+        },
+      }))
+    );
+  }, [highlightedNodes, highlightedEdges]); // FIXED: Only update when highlights change
 
   // Handle node click
   const handleNodeClick: NodeMouseHandler = useCallback(
@@ -355,99 +375,48 @@ const LineageCanvasInner: React.FC<LineageCanvasProps> = ({
           }}
         />
 
-        {/* Top-left: Legend */}
+        {/* Top-left: Stats */}
         <Panel position="top-left">
-          <Paper
-            elevation={2}
-            sx={{
-              p: 2,
-              minWidth: 200,
-              bgcolor: 'background.paper',
-            }}
-          >
-            <Typography variant="subtitle2" gutterBottom fontWeight={600}>
-              Legend
+          <Paper elevation={2} sx={{ p: 2, minWidth: 200 }}>
+            <Typography variant="subtitle2" gutterBottom>
+              Graph Statistics
             </Typography>
-            <Stack spacing={1}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Box
-                  sx={{
-                    width: 16,
-                    height: 16,
-                    bgcolor: '#64b5f6',
-                    borderRadius: 1,
-                  }}
-                />
-                <Typography variant="caption">Schema Class</Typography>
-              </Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Box
-                  sx={{
-                    width: 16,
-                    height: 16,
-                    bgcolor: '#4fc3f7',
-                    borderRadius: 1,
-                  }}
-                />
-                <Typography variant="caption">Attribute</Typography>
-              </Box>
-              {highlightedNodes.length > 0 && (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Box
-                    sx={{
-                      width: 16,
-                      height: 16,
-                      bgcolor: '#ffc107',
-                      borderRadius: 1,
-                    }}
-                  />
-                  <Typography variant="caption">Highlighted Path</Typography>
-                </Box>
-              )}
+            <Stack direction="row" spacing={2} alignItems="center">
+              <Chip
+                size="small"
+                label={`${stats.totalNodes} nodes`}
+                variant="outlined"
+              />
+              <Chip
+                size="small"
+                label={`${stats.totalEdges} edges`}
+                variant="outlined"
+              />
             </Stack>
           </Paper>
         </Panel>
 
-        {/* Top-right: Stats & Controls */}
+        {/* Top-right: Zoom Controls */}
         <Panel position="top-right">
-          <Stack spacing={1}>
-            {/* Stats */}
-            <Paper elevation={2} sx={{ px: 2, py: 1 }}>
-              <Stack direction="row" spacing={2} alignItems="center">
-                <Chip
-                  size="small"
-                  label={`${stats.totalNodes} nodes`}
-                  variant="outlined"
-                />
-                <Chip
-                  size="small"
-                  label={`${stats.totalEdges} edges`}
-                  variant="outlined"
-                />
-              </Stack>
-            </Paper>
-
-            {/* Zoom Controls */}
-            <Paper elevation={2} sx={{ p: 0.5 }}>
-              <ButtonGroup orientation="vertical" size="small">
-                <Tooltip title="Zoom In" placement="left">
-                  <IconButton onClick={handleZoomIn} size="small">
-                    <ZoomIn fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Zoom Out" placement="left">
-                  <IconButton onClick={handleZoomOut} size="small">
-                    <ZoomOut fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="Fit View" placement="left">
-                  <IconButton onClick={handleFitView} size="small">
-                    <CenterFocusStrong fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              </ButtonGroup>
-            </Paper>
-          </Stack>
+          <Paper elevation={2} sx={{ p: 0.5 }}>
+            <ButtonGroup orientation="vertical" size="small">
+              <Tooltip title="Zoom In" placement="left">
+                <IconButton onClick={handleZoomIn} size="small">
+                  <ZoomIn fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Zoom Out" placement="left">
+                <IconButton onClick={handleZoomOut} size="small">
+                  <ZoomOut fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Fit View" placement="left">
+                <IconButton onClick={handleFitView} size="small">
+                  <CenterFocusStrong fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </ButtonGroup>
+          </Paper>
         </Panel>
       </ReactFlow>
     </Box>

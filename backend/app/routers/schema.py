@@ -1,4 +1,4 @@
-# backend/app/routers/schema.py - UPDATED with multi-file support
+# backend/app/routers/schema.py - FIXED load_data call
 from fastapi import APIRouter, HTTPException, status, UploadFile, File, Form
 from typing import List, Dict, Any, Optional
 from ..models.schemas import (
@@ -27,7 +27,15 @@ async def infer_schema(
     Infer schema from single uploaded data file
     """
     try:
+        logger.info(f"📥 Inferring schema from single file: {file.filename} ({format})")
+        
         file_content = await file.read()
+        
+        if not file_content:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Empty file provided"
+            )
         
         result = SchemaInferenceService.infer_schema_from_file(
             file_content,
@@ -35,9 +43,45 @@ async def infer_schema(
             format
         )
         
-        return result
+        # Validate response structure
+        if not isinstance(result, dict):
+            logger.error(f"Invalid result type: {type(result)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Internal error: Invalid response format"
+            )
+        
+        # Ensure required fields exist with defaults
+        validated_result = {
+            'suggested_name': result.get('suggested_name', f'Schema from {file.filename}'),
+            'description': result.get('description', ''),
+            'classes': result.get('classes', []),
+            'relationships': result.get('relationships', []),
+            'confidence_score': result.get('confidence_score', 0.5),
+            'warnings': result.get('warnings', []),
+        }
+        
+        # Ensure arrays are actually arrays
+        if not isinstance(validated_result['classes'], list):
+            logger.warning("Classes field is not a list, converting to empty list")
+            validated_result['classes'] = []
+        
+        if not isinstance(validated_result['relationships'], list):
+            logger.warning("Relationships field is not a list, converting to empty list")
+            validated_result['relationships'] = []
+        
+        if not isinstance(validated_result['warnings'], list):
+            validated_result['warnings'] = []
+        
+        logger.info(f"✅ Schema inferred: {len(validated_result['classes'])} classes, "
+                   f"{len(validated_result['relationships'])} relationships")
+        
+        return validated_result
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Failed to infer schema: {str(e)}")
+        logger.error(f"Failed to infer schema: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to infer schema: {str(e)}"
@@ -47,50 +91,113 @@ async def infer_schema(
 @router.post("/infer-multi")
 async def infer_schema_multi(
     files: List[UploadFile] = File(...),
-    formats: str = Form(...)  # JSON string array
+    formats: str = Form(...)
 ):
     """
     Infer unified schema from multiple files using FalkorDB temporary graph
-    
-    This endpoint:
-    1. Accepts multiple files
-    2. Creates temporary analysis graph in FalkorDB
-    3. Detects relationships across files
-    4. Builds unified schema
-    5. Cleans up temporary graph
     """
     try:
-        # Parse formats
-        format_list = json.loads(formats)
+        logger.info(f"📦 Starting multi-file schema inference with {len(files)} files")
+        
+        if not files:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No files provided"
+            )
+        
+        try:
+            format_list = json.loads(formats)
+        except json.JSONDecodeError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid formats JSON: {str(e)}"
+            )
+        
+        if not isinstance(format_list, list):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Formats must be a JSON array"
+            )
         
         if len(files) != len(format_list):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Number of files must match number of formats"
+                detail=f"Number of files ({len(files)}) must match number of formats ({len(format_list)})"
             )
         
-        logger.info(f"📦 Received {len(files)} files for multi-file schema inference")
+        logger.info(f"📊 Processing files: {[f.filename for f in files]}")
+        logger.info(f"📊 With formats: {format_list}")
         
-        # Read all files
         files_data = []
         for file, file_format in zip(files, format_list):
             file_content = await file.read()
+            
+            if not file_content:
+                logger.warning(f"⚠️ Empty file: {file.filename}")
+                continue
+            
             files_data.append((file_content, file.filename or 'unknown', file_format))
         
-        # Infer unified schema using FalkorDB
+        if not files_data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="All provided files were empty"
+            )
+        
         result = MultiFileSchemaInferenceService.infer_schema_from_multiple_files(files_data)
         
-        logger.info(f"✅ Multi-file inference complete: {len(result['classes'])} classes")
+        # Validate response structure
+        if not isinstance(result, dict):
+            logger.error(f"Invalid result type from inference: {type(result)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Internal error: Invalid response format"
+            )
         
-        return result
+        # Ensure required fields exist with defaults
+        validated_result = {
+            'suggested_name': result.get('suggested_name', f'Unified Schema ({len(files)} files)'),
+            'description': result.get('description', ''),
+            'classes': result.get('classes', []),
+            'relationships': result.get('relationships', []),
+            'confidence_score': result.get('confidence_score', 0.5),
+            'warnings': result.get('warnings', []),
+            'metadata': result.get('metadata', {
+                'source_files': [f.filename for f in files],
+                'total_files': len(files)
+            }),
+        }
         
-    except json.JSONDecodeError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid formats JSON: {str(e)}"
-        )
+        # Ensure arrays are actually arrays
+        if not isinstance(validated_result['classes'], list):
+            logger.warning("Classes field is not a list, converting to empty list")
+            validated_result['classes'] = []
+        
+        if not isinstance(validated_result['relationships'], list):
+            logger.warning("Relationships field is not a list, converting to empty list")
+            validated_result['relationships'] = []
+        
+        if not isinstance(validated_result['warnings'], list):
+            validated_result['warnings'] = []
+        
+        if not isinstance(validated_result['metadata'], dict):
+            validated_result['metadata'] = {
+                'source_files': [f.filename for f in files],
+                'total_files': len(files)
+            }
+        
+        logger.info(f"✅ Multi-file inference complete: {len(validated_result['classes'])} classes, "
+                   f"{len(validated_result['relationships'])} relationships")
+        
+        if validated_result['classes']:
+            logger.info(f"📋 Classes: {[c.get('name', 'unknown') for c in validated_result['classes']]}")
+        
+        return validated_result
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Failed multi-file schema inference: {str(e)}")
+        logger.error(f"❌ Failed multi-file schema inference: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to infer schema from multiple files: {str(e)}"
@@ -101,7 +208,9 @@ async def infer_schema_multi(
 async def create_schema(request: SchemaCreateRequest):
     """Create a new schema definition"""
     try:
+        logger.info(f"Creating schema: {request.name}")
         schema = SchemaService.create_schema(request)
+        logger.info(f"✅ Schema created: {schema.id}")
         return schema
     except Exception as e:
         logger.error(f"Failed to create schema: {str(e)}")
@@ -127,7 +236,7 @@ async def list_schemas():
 
 @router.get("/{schema_id}", response_model=SchemaDefinition)
 async def get_schema(schema_id: str):
-    """Get schema by ID"""
+    """Get a specific schema"""
     try:
         schema = SchemaService.get_schema(schema_id)
         return schema
@@ -146,10 +255,13 @@ async def get_schema(schema_id: str):
 
 @router.delete("/{schema_id}", response_model=SuccessResponse)
 async def delete_schema(schema_id: str):
-    """Delete schema and all associated data"""
+    """Delete a schema and all its data"""
     try:
         SchemaService.delete_schema(schema_id)
-        return SuccessResponse(success=True, message="Schema deleted successfully")
+        return SuccessResponse(
+            success=True,
+            message=f"Schema {schema_id} deleted successfully"
+        )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -168,7 +280,7 @@ async def get_lineage_graph(
     schema_id: str,
     expanded_classes: Optional[str] = None
 ):
-    """Get lineage graph for schema - NO LIMITS"""
+    """Get lineage graph for a schema"""
     try:
         expanded_list = []
         if expanded_classes:
@@ -190,35 +302,26 @@ async def get_lineage_graph(
 
 
 @router.post("/{schema_id}/find-paths", response_model=LineagePathResponse)
-async def find_all_paths(schema_id: str, request: dict):
-    """Find ALL paths between nodes - production grade, NO LIMITS"""
+async def find_paths(schema_id: str, request: LineagePathRequest):
+    """Find paths between nodes in lineage graph"""
     try:
-        node_ids = request.get('node_ids', [])
-        max_depth = request.get('max_depth', 10)
-        
-        if len(node_ids) < 2:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="At least 2 nodes required for path finding"
-            )
-        
-        if max_depth < 1 or max_depth > 50:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="max_depth must be between 1 and 50"
-            )
-        
-        logger.info(f"Finding all paths between {len(node_ids)} nodes with max_depth={max_depth}")
-        path = SchemaService.get_all_paths_between_nodes(schema_id, node_ids, max_depth)
-        return path
-        
-    except HTTPException:
-        raise
+        paths = SchemaService.find_lineage_paths(
+            schema_id,
+            request.start_node_id,
+            request.end_node_id,
+            request.max_depth
+        )
+        return paths
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
     except Exception as e:
-        logger.error(f"Failed to get all paths: {str(e)}")
+        logger.error(f"Failed to find paths: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get all paths: {str(e)}"
+            detail=f"Failed to find paths: {str(e)}"
         )
 
 
@@ -249,8 +352,19 @@ async def load_data(
 ):
     """Load data from file into schema"""
     try:
-        mapping_data = json.loads(mapping)
+        logger.info(f"📥 Loading data into schema: {schema_id}")
+        logger.info(f"📄 File: {file.filename}")
         
+        # Parse mapping JSON
+        try:
+            mapping_data = json.loads(mapping)
+        except json.JSONDecodeError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid mapping JSON: {str(e)}"
+            )
+        
+        # Create DataLoadRequest
         request = DataLoadRequest(
             schema_id=schema_id,
             format=mapping_data['format'],
@@ -259,9 +373,17 @@ async def load_data(
             relationship_mappings=mapping_data.get('relationship_mappings')
         )
         
+        # Read file content
         file_content = await file.read()
         
+        logger.info(f"📊 Request: {len(request.class_mappings)} class mappings")
+        
+        # FIXED: Call with correct argument order - request first, then file_content
         response = DataLoaderService.load_data(request, file_content)
+        
+        logger.info(f"✅ Data loaded: {response.instances_created} instances, "
+                   f"{response.relationships_created} relationships")
+        
         return response
         
     except json.JSONDecodeError as e:
@@ -269,8 +391,13 @@ async def load_data(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid mapping JSON: {str(e)}"
         )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
     except Exception as e:
-        logger.error(f"Failed to load data: {str(e)}")
+        logger.error(f"Failed to load data: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to load data: {str(e)}"

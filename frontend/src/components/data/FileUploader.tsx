@@ -1,4 +1,4 @@
-// frontend/src/components/data/FileUploader.tsx - FIXED ALL ISSUES
+// frontend/src/components/data/FileUploader.tsx - FIXED with error handling
 import React, { useCallback, useState, useRef } from 'react';
 import {
   Box,
@@ -27,7 +27,7 @@ import {
 export type FileFormat = 'csv' | 'excel' | 'json' | 'xml';
 
 interface FileUploaderProps {
-  onFileSelect: (files: File[], formats: FileFormat[]) => void;
+  onFileSelect: (files: File[], formats: FileFormat[]) => Promise<void>;
   acceptedFormats?: FileFormat[];
   maxSizeMB?: number;
   multiFile?: boolean;
@@ -111,6 +111,8 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
           const isDuplicate = selectedFiles.some((sf) => sf.file.name === file.name);
           if (!isDuplicate) {
             newFiles.push({ file, format: validation.format });
+          } else {
+            errors.push(`${file.name}: Already added`);
           }
         } else if (validation.error) {
           errors.push(`${file.name}: ${validation.error}`);
@@ -188,6 +190,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
     }
   }, [selectedFiles.length]);
 
+  // FIXED: Wrap onFileSelect in try-catch to handle errors properly
   const handleUpload = useCallback(async () => {
     if (selectedFiles.length === 0) return;
 
@@ -197,9 +200,31 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
     try {
       const files = selectedFiles.map((sf) => sf.file);
       const formats = selectedFiles.map((sf) => sf.format);
+      
+      console.log('📤 FileUploader calling onFileSelect with:', {
+        fileCount: files.length,
+        formats: formats,
+        fileNames: files.map(f => f.name),
+      });
+      
+      // FIXED: Ensure onFileSelect returns a promise and await it
       await onFileSelect(files, formats);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed');
+      
+      // Success - clear files
+      setSelectedFiles([]);
+      
+    } catch (err: any) {
+      console.error('❌ FileUploader upload error:', err);
+      
+      // FIXED: Better error message extraction
+      let errorMessage = 'Upload failed';
+      if (err.response?.data?.detail) {
+        errorMessage = err.response.data.detail;
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
+      setError(errorMessage);
     } finally {
       setUploading(false);
     }

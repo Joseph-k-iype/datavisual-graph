@@ -1,4 +1,4 @@
-// frontend/src/components/schema/SchemaLanding.tsx - FIXED API Response Handling
+// frontend/src/components/schema/SchemaLanding.tsx - FIXED async handler type
 import React, { useState, useCallback } from 'react';
 import {
   Box,
@@ -34,11 +34,12 @@ import {
 import { FileUploader, FileFormat } from '../data/FileUploader';
 import { SchemaDefinition } from '../../types';
 
+// FIXED: Change onUploadData to return Promise<void>
 interface SchemaLandingProps {
   schemas: SchemaDefinition[];
   onSchemaSelect: (schema: SchemaDefinition) => void;
   onCreateNew: () => void;
-  onUploadData: (files: File[], formats: FileFormat[]) => void;
+  onUploadData: (files: File[], formats: FileFormat[]) => Promise<void>;
   onDeleteSchema: (schemaId: string) => void;
   loading?: boolean;
 }
@@ -69,8 +70,9 @@ export const SchemaLanding: React.FC<SchemaLandingProps> = ({
     }
   }, [schemaToDelete, onDeleteSchema]);
 
-  const handleFileUpload = useCallback((files: File[], formats: FileFormat[]) => {
-    onUploadData(files, formats);
+  // FIXED: Make async to match the prop type
+  const handleFileUpload = useCallback(async (files: File[], formats: FileFormat[]) => {
+    await onUploadData(files, formats);
     setUploadDialogOpen(false);
   }, [onUploadData]);
 
@@ -78,58 +80,63 @@ export const SchemaLanding: React.FC<SchemaLandingProps> = ({
 
   // Helper function to safely get class count
   const getClassCount = (schema: any) => {
-    if (schema.class_count !== undefined) return schema.class_count;
-    if (schema.classes && Array.isArray(schema.classes)) return schema.classes.length;
-    return 0;
-  };
-
-  // Helper function to safely get relationship count
-  const getRelationshipCount = (schema: any) => {
-    if (schema.relationship_count !== undefined) return schema.relationship_count;
-    if (schema.relationships && Array.isArray(schema.relationships)) return schema.relationships.length;
+    if (schema.class_count !== undefined) {
+      return schema.class_count;
+    }
+    if (schema.classes && Array.isArray(schema.classes)) {
+      return schema.classes.length;
+    }
     return 0;
   };
 
   // Helper function to safely get instance count
   const getInstanceCount = (schema: any) => {
-    if (schema.instance_count !== undefined) return schema.instance_count;
+    if (schema.instance_count !== undefined) {
+      return schema.instance_count;
+    }
+    return 0;
+  };
+
+  // Helper function to safely get relationship count
+  const getRelationshipCount = (schema: any) => {
+    if (schema.relationship_count !== undefined) {
+      return schema.relationship_count;
+    }
+    if (schema.relationships && Array.isArray(schema.relationships)) {
+      return schema.relationships.length;
+    }
     return 0;
   };
 
   return (
-    <Box
-      sx={{
-        minHeight: '100%',
-        background: (theme) =>
-          `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.05)} 0%, ${alpha(
-            theme.palette.secondary.main,
-            0.05
-          )} 100%)`,
+    <Box>
+      {/* Header */}
+      <Box sx={{ 
+        bgcolor: 'primary.main', 
+        color: 'primary.contrastText',
         py: 6,
-      }}
-    >
-      <Container maxWidth="lg">
-        {/* Header */}
-        <Stack spacing={4} mb={6}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center">
-            <Box>
-              <Typography variant="h3" gutterBottom fontWeight="bold">
-                Data Lineage Schemas
-              </Typography>
-              <Typography variant="body1" color="text.secondary">
-                Manage your data lineage schemas and visualize hierarchical relationships
-              </Typography>
-            </Box>
-          </Stack>
-
-          {/* Action Buttons */}
-          <Stack direction="row" spacing={2}>
+        mb: 4,
+      }}>
+        <Container maxWidth="lg">
+          <Typography variant="h3" gutterBottom fontWeight={600}>
+            Data Lineage Visualizer
+          </Typography>
+          <Typography variant="h6" sx={{ opacity: 0.9 }}>
+            Create schemas, load data, and visualize complex data lineage relationships
+          </Typography>
+          <Stack direction="row" spacing={2} mt={4}>
             <Button
               variant="contained"
               size="large"
               startIcon={<Add />}
               onClick={onCreateNew}
-              sx={{ minWidth: 200 }}
+              sx={{
+                bgcolor: 'white',
+                color: 'primary.main',
+                '&:hover': {
+                  bgcolor: alpha('#ffffff', 0.9),
+                },
+              }}
             >
               Create New Schema
             </Button>
@@ -138,15 +145,24 @@ export const SchemaLanding: React.FC<SchemaLandingProps> = ({
               size="large"
               startIcon={<Upload />}
               onClick={() => setUploadDialogOpen(true)}
-              sx={{ minWidth: 200 }}
+              sx={{
+                borderColor: 'white',
+                color: 'white',
+                '&:hover': {
+                  borderColor: 'white',
+                  bgcolor: alpha('#ffffff', 0.1),
+                },
+              }}
             >
-              Upload & Infer Schema
+              Upload Data Files
             </Button>
           </Stack>
-        </Stack>
+        </Container>
+      </Box>
 
-        {/* Empty State or Schema Grid */}
-        {!hasSchemas && !loading ? (
+      {/* Content */}
+      <Container maxWidth="lg">
+        {!hasSchemas ? (
           <Paper
             elevation={1}
             sx={{
@@ -240,30 +256,27 @@ export const SchemaLanding: React.FC<SchemaLandingProps> = ({
                         <IconButton
                           size="small"
                           onClick={(e) => handleDeleteClick(schema.id, e)}
-                          sx={{ color: 'error.main' }}
+                          sx={{ color: 'text.secondary' }}
                         >
                           <Delete fontSize="small" />
                         </IconButton>
                       </Stack>
 
                       <Box>
-                        <Typography variant="h6" gutterBottom fontWeight="bold">
+                        <Typography variant="h6" gutterBottom>
                           {schema.name}
                         </Typography>
-                        <Typography
-                          variant="body2"
-                          color="text.secondary"
-                          sx={{
+                        {schema.description && (
+                          <Typography variant="body2" color="text.secondary" sx={{
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
                             display: '-webkit-box',
                             WebkitLineClamp: 2,
                             WebkitBoxOrient: 'vertical',
-                            minHeight: 40,
-                          }}
-                        >
-                          {schema.description || 'No description'}
-                        </Typography>
+                          }}>
+                            {schema.description}
+                          </Typography>
+                        )}
                       </Box>
 
                       <Divider />
@@ -272,13 +285,11 @@ export const SchemaLanding: React.FC<SchemaLandingProps> = ({
                         <Chip
                           size="small"
                           label={`${getClassCount(schema)} classes`}
-                          icon={<DataObject />}
                           variant="outlined"
                         />
                         <Chip
                           size="small"
-                          label={`${getRelationshipCount(schema)} relations`}
-                          icon={<AccountTree />}
+                          label={`${getRelationshipCount(schema)} relationships`}
                           variant="outlined"
                         />
                         {getInstanceCount(schema) > 0 && (
@@ -365,11 +376,7 @@ export const SchemaLanding: React.FC<SchemaLandingProps> = ({
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            color="error"
-            onClick={handleDeleteConfirm}
-          >
+          <Button onClick={handleDeleteConfirm} color="error" variant="contained">
             Delete
           </Button>
         </DialogActions>
