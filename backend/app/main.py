@@ -1,27 +1,31 @@
-# backend/app/main.py - COMPLETE WITH DATA ROUTER
-"""
-Data Lineage API - Main Application (Enhanced)
-A FastAPI application for managing data lineage with schema definition
-"""
+# backend/app/main.py - UPDATED WITH HIERARCHY ROUTER
 
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
 from contextlib import asynccontextmanager
-from .routers import nodes, lineage, stats, groups, schema, data  # ← ADDED data
-from .database import db
-import logging
 import sys
-import traceback
+import logging
 
-# Logging configuration
+# Import database
+from .database import db
+
+# Import routers
+from .routers import (
+    schema,
+    data,
+    hierarchy,  # NEW: Hierarchy router
+    nodes,
+    lineage,
+    stats,
+    groups
+)
+
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler('app.log') if not sys.stdout.isatty() else logging.NullHandler()
+        logging.StreamHandler(sys.stdout)
     ]
 )
 
@@ -30,163 +34,65 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifespan event handler for startup and shutdown"""
-    # STARTUP
+    """Startup and shutdown events"""
+    # Startup
     logger.info("=" * 60)
-    logger.info("🚀 Starting Data Lineage API (Enhanced)")
+    logger.info("🚀 Starting Data Lineage API v2.0")
     logger.info("=" * 60)
     
     try:
-        logger.info("📊 Initializing database connection...")
         db.connect()
-        logger.info("✅ Database connection established")
-        
-        # Test database connection
-        try:
-            test_query = "RETURN 1"
-            result = db.execute_query(test_query)
-            if result:
-                logger.info("✅ Database health check passed")
-        except Exception as e:
-            logger.warning(f"⚠️  Database health check failed: {str(e)}")
-        
-        logger.info("✅ All routers loaded successfully")
-        logger.info("=" * 60)
-        logger.info("🎉 Application startup complete!")
-        logger.info("📍 API Documentation: http://localhost:8000/docs")
-        logger.info("📍 Health Check: http://localhost:8000/health")
-        logger.info("=" * 60)
-        
+        logger.info("✅ Database connected successfully")
     except Exception as e:
-        logger.error("=" * 60)
-        logger.error(f"❌ Failed to start application: {str(e)}")
-        logger.error("=" * 60)
-        logger.error(traceback.format_exc())
+        logger.error(f"❌ Failed to connect to database: {str(e)}")
         raise
+    
+    logger.info("🎯 API ready to accept requests")
+    logger.info("=" * 60)
     
     yield
     
-    # SHUTDOWN
+    # Shutdown
     logger.info("=" * 60)
     logger.info("🛑 Shutting down Data Lineage API")
     logger.info("=" * 60)
     
     try:
-        logger.info("📊 Closing database connection...")
         db.disconnect()
-        logger.info("✅ Database connection closed")
-        logger.info("✅ Application shutdown complete")
-        logger.info("=" * 60)
+        logger.info("✅ Database disconnected")
     except Exception as e:
         logger.error(f"❌ Error during shutdown: {str(e)}")
-        logger.error(traceback.format_exc())
 
 
+# Create FastAPI app
 app = FastAPI(
     title="Data Lineage API (Enhanced)",
-    description="""
-    ## Enhanced Data Lineage Management System
-    
-    A comprehensive API for managing data lineage with schema definition and hierarchical visualization.
-    
-    ### Features:
-    * **Schema Definition**: Define classes, relationships, and cardinality
-    * **Data Loading**: Load data from CSV, Excel, JSON, XML
-    * **Hierarchical Visualization**: Schema-level and data-level views
-    * **Lineage Tracking**: Track data flow and relationships
-    * **Advanced Analytics**: Statistics and insights
-    
-    ### New Capabilities:
-    * **Schema Builder**: Visual schema definition with drag-and-drop
-    * **Data Mapper**: Intelligent mapping of data to schema
-    * **Collapsible Views**: Expand/collapse schema classes
-    * **Path Highlighting**: Trace lineage from any data point
-    * **Multi-file Schema Inference**: Detect relationships across files
-    * **Data Parsing**: Parse and preview data files
-    """,
+    description="Enterprise Data Lineage & Schema Management API with Hierarchy Support",
     version="2.0.0",
-    lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
-    contact={
-        "name": "Data Lineage Team",
-        "email": "support@example.com",
-    },
-    license_info={
-        "name": "MIT",
-    },
+    lifespan=lifespan
 )
-
 
 # CORS Configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173",
         "http://localhost:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:3001",
+        "http://localhost:3001",  # Add this for your frontend
+        "http://localhost:5173"
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"],
 )
 
-
-# Request Logging Middleware
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    """Log all incoming requests"""
-    logger.info(f"📨 {request.method} {request.url.path}")
-    
-    try:
-        response = await call_next(request)
-        logger.info(f"✅ {request.method} {request.url.path} - {response.status_code}")
-        return response
-    except Exception as e:
-        logger.error(f"❌ {request.method} {request.url.path} - Error: {str(e)}")
-        raise
-
-
-# Exception Handlers
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """Handle validation errors"""
-    logger.error(f"Validation error: {exc}")
-    return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={
-            "detail": exc.errors(),
-            "body": exc.body
-        }
-    )
-
-
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    """Handle all other exceptions"""
-    logger.error(f"Unhandled exception: {str(exc)}")
-    logger.error(traceback.format_exc())
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={
-            "detail": "Internal server error",
-            "error": str(exc)
-        }
-    )
-
-
-# Include Routers - ORDER MATTERS!
-app.include_router(schema.router, prefix="/api/v1")  # Schema operations
-app.include_router(data.router, prefix="/api/v1")    # ← NEW: Data parsing
-app.include_router(nodes.router, prefix="/api/v1")   # Legacy nodes
-app.include_router(lineage.router, prefix="/api/v1") # Legacy lineage
-app.include_router(stats.router, prefix="/api/v1")   # Legacy stats
-app.include_router(groups.router, prefix="/api/v1")  # Legacy groups
+# Include routers
+app.include_router(schema.router, prefix="/api/v1")      # Schema operations
+app.include_router(hierarchy.router, prefix="/api/v1")   # NEW: Hierarchy operations
+app.include_router(data.router, prefix="/api/v1")        # Data parsing
+app.include_router(nodes.router, prefix="/api/v1")       # Legacy nodes
+app.include_router(lineage.router, prefix="/api/v1")     # Legacy lineage
+app.include_router(stats.router, prefix="/api/v1")       # Legacy stats
+app.include_router(groups.router, prefix="/api/v1")      # Legacy groups
 
 
 # Root Endpoints
@@ -199,6 +105,7 @@ async def root():
         "status": "running",
         "features": [
             "Schema Management",
+            "Class Hierarchy with SUBCLASS_OF relationships",
             "Multi-file Schema Inference",
             "Data Parsing & Preview",
             "Attribute-level Lineage",
@@ -208,6 +115,7 @@ async def root():
         ],
         "endpoints": {
             "schemas": "/api/v1/schemas",
+            "hierarchy": "/api/v1/hierarchy",
             "data": "/api/v1/data",
             "docs": "/docs",
             "health": "/health"
@@ -252,6 +160,8 @@ async def version():
         "fastapi": "0.100.0+",
         "features": [
             "Schema Definition",
+            "Class Hierarchy Support",
+            "Subclass Creation with SUBCLASS_OF relationships",
             "Multi-format Data Loading",
             "Hierarchical Visualization",
             "Lineage Path Tracing",
@@ -266,7 +176,7 @@ async def api_documentation():
     return {
         "title": "Data Lineage API (Enhanced)",
         "version": "2.0.0",
-        "description": "Enterprise Data Lineage & Schema Management API",
+        "description": "Enterprise Data Lineage & Schema Management API with Hierarchy",
         "endpoints": {
             "schemas": {
                 "GET /api/v1/schemas": "List all schemas",
@@ -276,6 +186,11 @@ async def api_documentation():
                 "POST /api/v1/schemas/infer": "Infer schema from single file",
                 "POST /api/v1/schemas/infer-multi": "Infer unified schema from multiple files",
                 "POST /api/v1/schemas/{id}/load-data": "Load data into schema"
+            },
+            "hierarchy": {
+                "GET /api/v1/hierarchy/{schema_id}/tree": "Get hierarchy tree",
+                "POST /api/v1/hierarchy/{schema_id}/subclass": "Create subclass",
+                "GET /api/v1/hierarchy/{schema_id}/stats": "Get hierarchy statistics"
             },
             "data": {
                 "POST /api/v1/data/parse": "Parse file and return structure",
