@@ -264,17 +264,38 @@ export const LineageCanvas: React.FC<LineageCanvasProps> = ({
     return convertToFlowEdges(graph.edges, highlightedEdges);
   }, [graph, highlightedEdges]);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+const [nodes, setNodes, onNodesChange] = useNodesState([]);
+const [edges, setEdges, onEdgesChange] = useEdgesState([]);
 
-  // Update nodes when graph changes
-  useEffect(() => {
-    setNodes(initialNodes);
-  }, [initialNodes, setNodes]);
+// Only update when graph ID or node count actually changes
+useEffect(() => {
+  if (!graph || !graph.nodes) {
+    setNodes([]);
+    return;
+  }
+  
+  const flowNodes = convertToFlowNodes(
+    graph.nodes,
+    hierarchyMap,
+    highlightedNodes,
+    showAttributes,
+    onAttributeClick
+  );
+  
+  console.log('🔄 Updating nodes:', flowNodes.length);
+  setNodes(flowNodes);
+}, [graph?.schema_id, graph?.nodes?.length, hierarchyMap, showAttributes]);
 
-  useEffect(() => {
-    setEdges(initialEdges);
-  }, [initialEdges, setEdges]);
+useEffect(() => {
+  if (!graph || !graph.edges) {
+    setEdges([]);
+    return;
+  }
+  
+  const flowEdges = convertToFlowEdges(graph.edges, highlightedEdges);
+  console.log('🔄 Updating edges:', flowEdges.length);
+  setEdges(flowEdges);
+}, [graph?.schema_id, graph?.edges?.length, highlightedEdges]);
 
   // Fit view on initial load
   useEffect(() => {

@@ -1,5 +1,5 @@
 // frontend/src/components/schema/SchemaBuilder.tsx
-// COMPLETE VERSION WITH VISIBLE RELATIONSHIP/EDGE CREATION
+// COMPLETE FIXED VERSION - Attributes mapped to strings correctly
 
 import React, { useState, useCallback } from 'react';
 import {
@@ -15,7 +15,6 @@ import {
   Divider,
   Card,
   CardContent,
-  CardActions,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -27,10 +26,12 @@ import {
   Grid,
   Checkbox,
   FormControlLabel,
+  CircularProgress,
 } from '@mui/material';
 import {
   Add,
   Delete,
+  Edit,
   Save,
   Cancel,
   AccountTree,
@@ -167,6 +168,15 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
     setClassDialogOpen(true);
   }, []);
 
+  const handleEditClass = useCallback((cls: SchemaClass) => {
+    setEditingClass(cls);
+    setNewClassName(cls.name);
+    setNewAttributes(cls.attributes.length > 0 ? [...cls.attributes] : [createDefaultAttribute()]);
+    setParentClassId(cls.parent_id || '');
+    setInheritAttributes(cls.metadata?.inherit_attributes !== false);
+    setClassDialogOpen(true);
+  }, []);
+
   const handleSaveClass = useCallback(() => {
     if (!newClassName.trim()) {
       alert('Class name is required');
@@ -185,6 +195,10 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
               attributes: filteredAttributes,
               parent_id: parentClassId || undefined,
               level: parentClassId ? (findClassById(parentClassId)?.level || 0) + 1 : 0,
+              metadata: {
+                ...cls.metadata,
+                inherit_attributes: inheritAttributes,
+              },
             };
           }
           if (cls.children.length > 0) {
@@ -288,11 +302,14 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
   }, []);
 
   const handleSaveRelationship = useCallback(() => {
-    if (!relationshipForm.name.trim() || !relationshipForm.source_class_id || !relationshipForm.target_class_id) {
-      alert('All fields are required');
+    if (!relationshipForm.name.trim()) {
+      alert('Relationship name is required');
       return;
     }
-
+    if (!relationshipForm.source_class_id || !relationshipForm.target_class_id) {
+      alert('Source and target classes are required');
+      return;
+    }
     if (relationshipForm.source_class_id === relationshipForm.target_class_id) {
       alert('Source and target classes must be different');
       return;
@@ -300,12 +317,10 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
 
     const newRelationship: SchemaRelationship = {
       id: uuidv4(),
-      name: relationshipForm.name,
-      source_class_id: relationshipForm.source_class_id,
-      target_class_id: relationshipForm.target_class_id,
-      cardinality: relationshipForm.cardinality,
+      ...relationshipForm,
     };
 
+    console.log('➕ Adding relationship to state:', newRelationship);
     setRelationships([...relationships, newRelationship]);
     setRelationshipDialogOpen(false);
   }, [relationshipForm, relationships]);
@@ -316,7 +331,7 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
   }, [relationships]);
 
   // ============================================
-  // SCHEMA CREATION
+  // SCHEMA CREATION - PROPERLY FIXED!
   // ============================================
 
   const handleCreateSchema = async () => {
@@ -334,38 +349,61 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
 
     try {
       console.log('🚀 Creating schema with hierarchy...');
+      console.log(`📊 Total classes: ${flattenClasses(classes).length}`);
+      console.log(`🔗 Total relationships: ${relationships.length}`);
 
       const rootClasses = classes.filter((cls) => !cls.parent_id);
       const allClasses = flattenClasses(classes);
 
+      // ✅ FIX: Map attributes to strings for root classes
       const schemaPayload = {
         name: schemaName,
         description: schemaDescription,
         classes: rootClasses.map((cls) => ({
           id: cls.id,
           name: cls.name,
-          attributes: cls.attributes,
+          attributes: cls.attributes.map(attr => attr.name), // ✅ FIXED: Convert to string array
           metadata: cls.metadata,
         })),
-        relationships: relationships,
+        relationships: relationships.map(rel => ({
+          id: rel.id,
+          name: rel.name,
+          source_class_id: rel.source_class_id,
+          target_class_id: rel.target_class_id,
+          cardinality: rel.cardinality,
+        })),
       };
 
-      console.log('📝 Creating schema with root classes:', schemaPayload);
+      console.log('📝 Schema Payload:', JSON.stringify(schemaPayload, null, 2));
+      console.log(`   Root classes: ${schemaPayload.classes.length}`);
+      console.log(`   Relationships: ${schemaPayload.relationships.length}`);
+      
       const createdSchema = await apiService.createSchema(schemaPayload);
       console.log('✅ Schema created:', createdSchema);
 
+      // Create subclasses
       const subclassesToCreate = allClasses.filter((cls) => cls.parent_id);
+      console.log(`📦 Creating ${subclassesToCreate.length} subclasses...`);
 
       for (const subclass of subclassesToCreate) {
         console.log(`➕ Creating subclass: ${subclass.name} under parent: ${subclass.parent_id}`);
 
+        // ✅ FIX: For createSubclass, use full Attribute objects
         const createSubclassRequest = {
           parent_class_id: subclass.parent_id!,
           name: subclass.name,
           display_name: subclass.name,
           description: subclass.metadata?.description || '',
           inherit_attributes: subclass.metadata?.inherit_attributes !== false,
-          additional_attributes: subclass.attributes,
+          additional_attributes: subclass.attributes.map(attr => ({
+            id: attr.id,
+            name: attr.name,
+            data_type: attr.data_type,
+            is_primary_key: attr.is_primary_key || false,
+            is_foreign_key: attr.is_foreign_key || false,
+            is_nullable: attr.is_nullable !== false,
+            metadata: attr.metadata || {}
+          })),
           metadata: subclass.metadata || {},
         };
 
@@ -387,12 +425,10 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
     } catch (error: any) {
       console.error('❌ Error creating schema:', error);
       
-      // Better error message extraction
       let errorMessage = 'Unknown error';
       if (error.response?.data?.detail) {
         const detail = error.response.data.detail;
         if (Array.isArray(detail)) {
-          // Pydantic validation errors
           errorMessage = detail.map((e: any) => {
             const loc = e.loc ? e.loc.join(' -> ') : '';
             return `${loc}: ${e.msg || e}`;
@@ -500,14 +536,27 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
                             <Typography variant="body2" color="text.secondary">
                               {cls.attributes.length} attribute{cls.attributes.length !== 1 ? 's' : ''}
                             </Typography>
+                            {cls.attributes.length > 0 && (
+                              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
+                                {cls.attributes.map((attr) => (
+                                  <Chip
+                                    key={attr.id}
+                                    label={`${attr.name}: ${attr.data_type}`}
+                                    size="small"
+                                    variant="outlined"
+                                  />
+                                ))}
+                              </Box>
+                            )}
                           </Stack>
-                          <IconButton
-                            size="small"
-                            color="error"
-                            onClick={() => handleDeleteClass(cls.id)}
-                          >
-                            <Delete fontSize="small" />
-                          </IconButton>
+                          <Stack direction="row" spacing={0.5}>
+                            <IconButton size="small" onClick={() => handleEditClass(cls)}>
+                              <Edit fontSize="small" />
+                            </IconButton>
+                            <IconButton size="small" color="error" onClick={() => handleDeleteClass(cls.id)}>
+                              <Delete fontSize="small" />
+                            </IconButton>
+                          </Stack>
                         </Stack>
                       </CardContent>
                     </Card>
@@ -522,7 +571,7 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
             <Paper elevation={2} sx={{ p: 3, height: '100%' }}>
               <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
                 <Typography variant="h6" fontWeight={600}>
-                  Relationships / Edges ({relationships.length})
+                  Relationships ({relationships.length})
                 </Typography>
                 <Button
                   variant="contained"
@@ -530,7 +579,7 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
                   onClick={handleAddRelationship}
                   disabled={flattenClasses(classes).length < 2}
                 >
-                  Add Edge
+                  Add Relationship
                 </Button>
               </Stack>
 
@@ -645,7 +694,7 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
             </Button>
             <Button
               variant="contained"
-              startIcon={saving ? undefined : <Save />}
+              startIcon={saving ? <CircularProgress size={20} color="inherit" /> : <Save />}
               onClick={handleCreateSchema}
               disabled={saving || !schemaName.trim() || flattenClasses(classes).length === 0}
               size="large"
@@ -762,7 +811,7 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
         <DialogActions>
           <Button onClick={() => setClassDialogOpen(false)}>Cancel</Button>
           <Button onClick={handleSaveClass} variant="contained">
-            Save Class
+            {editingClass ? 'Update' : 'Add'} Class
           </Button>
         </DialogActions>
       </Dialog>
@@ -777,7 +826,7 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
         <DialogTitle>
           <Stack direction="row" alignItems="center" spacing={1}>
             <LinkIcon />
-            <Typography variant="h6">Add Relationship / Edge</Typography>
+            <Typography variant="h6">Add Relationship</Typography>
           </Stack>
         </DialogTitle>
         <DialogContent>
@@ -790,7 +839,7 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
                 setRelationshipForm({ ...relationshipForm, name: e.target.value })
               }
               required
-              placeholder="e.g., owns, contains, manages"
+              placeholder="e.g., manages, contains, owns"
             />
 
             <FormControl fullWidth required>
@@ -852,21 +901,21 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
               </Select>
             </FormControl>
 
-            <Box
-              sx={{
-                p: 2,
-                bgcolor: 'info.50',
-                borderRadius: 1,
-                border: 1,
-                borderColor: 'info.main',
-              }}
-            >
-              <Typography variant="body2" color="info.dark">
-                <strong>Preview:</strong> {relationshipForm.source_class_id && relationshipForm.target_class_id
-                  ? `${findClassById(relationshipForm.source_class_id)?.name || '?'} → ${findClassById(relationshipForm.target_class_id)?.name || '?'}`
-                  : 'Select classes to preview'}
-              </Typography>
-            </Box>
+            {relationshipForm.source_class_id && relationshipForm.target_class_id && (
+              <Box
+                sx={{
+                  p: 2,
+                  bgcolor: 'info.50',
+                  borderRadius: 1,
+                  border: 1,
+                  borderColor: 'info.main',
+                }}
+              >
+                <Typography variant="body2" color="info.dark">
+                  <strong>Preview:</strong> {findClassById(relationshipForm.source_class_id)?.name || '?'} → {findClassById(relationshipForm.target_class_id)?.name || '?'}
+                </Typography>
+              </Box>
+            )}
           </Stack>
         </DialogContent>
         <DialogActions>
