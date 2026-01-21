@@ -1,4 +1,4 @@
-# backend/app/main.py - UPDATED WITH SCHEMA SUPPORT
+# backend/app/main.py - COMPLETE WITH DATA ROUTER
 """
 Data Lineage API - Main Application (Enhanced)
 A FastAPI application for managing data lineage with schema definition
@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from contextlib import asynccontextmanager
-from .routers import nodes, lineage, stats, groups, schema
+from .routers import nodes, lineage, stats, groups, schema, data  # ← ADDED data
 from .database import db
 import logging
 import sys
@@ -101,6 +101,8 @@ app = FastAPI(
     * **Data Mapper**: Intelligent mapping of data to schema
     * **Collapsible Views**: Expand/collapse schema classes
     * **Path Highlighting**: Trace lineage from any data point
+    * **Multi-file Schema Inference**: Detect relationships across files
+    * **Data Parsing**: Parse and preview data files
     """,
     version="2.0.0",
     lifespan=lifespan,
@@ -178,12 +180,13 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 
-# Include Routers
-app.include_router(schema.router, prefix="/api/v1")  # New schema router
-app.include_router(nodes.router, prefix="/api/v1")
-app.include_router(lineage.router, prefix="/api/v1")
-app.include_router(stats.router, prefix="/api/v1")
-app.include_router(groups.router, prefix="/api/v1")
+# Include Routers - ORDER MATTERS!
+app.include_router(schema.router, prefix="/api/v1")  # Schema operations
+app.include_router(data.router, prefix="/api/v1")    # ← NEW: Data parsing
+app.include_router(nodes.router, prefix="/api/v1")   # Legacy nodes
+app.include_router(lineage.router, prefix="/api/v1") # Legacy lineage
+app.include_router(stats.router, prefix="/api/v1")   # Legacy stats
+app.include_router(groups.router, prefix="/api/v1")  # Legacy groups
 
 
 # Root Endpoints
@@ -195,27 +198,20 @@ async def root():
         "version": "2.0.0",
         "status": "running",
         "features": [
-            "Schema Definition",
-            "Data Loading (CSV, Excel, JSON, XML)",
-            "Hierarchical Visualization",
-            "Lineage Tracking",
-            "Advanced Analytics"
+            "Schema Management",
+            "Multi-file Schema Inference",
+            "Data Parsing & Preview",
+            "Attribute-level Lineage",
+            "Data Loading & Mapping",
+            "Hierarchical Graph Visualization",
+            "Cross-file Relationship Detection"
         ],
-        "documentation": {
-            "swagger": "/docs",
-            "redoc": "/redoc",
-            "openapi": "/openapi.json"
-        },
         "endpoints": {
-            "health": "/health",
             "schemas": "/api/v1/schemas",
-            "nodes": "/api/v1/nodes",
-            "lineage": "/api/v1/lineage",
-            "stats": "/api/v1/stats",
-            "groups": "/api/v1/groups"
-        },
-        "database": "FalkorDB",
-        "frontend": "http://localhost:3001"
+            "data": "/api/v1/data",
+            "docs": "/docs",
+            "health": "/health"
+        }
     }
 
 
@@ -224,27 +220,19 @@ async def health_check():
     """Health check endpoint"""
     health_status = {
         "status": "healthy",
-        "api": "operational",
         "database": "unknown",
         "version": "2.0.0"
     }
     
     try:
+        # Test database connection
         test_query = "RETURN 1"
         result = db.execute_query(test_query)
-        
         if result:
             health_status["database"] = "connected"
-            
-            try:
-                stats_query = "MATCH (n) RETURN count(n) as node_count"
-                stats_result = db.execute_query(stats_query)
-                
-                if stats_result.result_set:
-                    node_count = stats_result.result_set[0][0]
-                    health_status["nodes"] = node_count
-            except:
-                pass
+        else:
+            health_status["database"] = "disconnected"
+            health_status["status"] = "degraded"
     except Exception as e:
         health_status["status"] = "unhealthy"
         health_status["database"] = "disconnected"
@@ -266,11 +254,41 @@ async def version():
             "Schema Definition",
             "Multi-format Data Loading",
             "Hierarchical Visualization",
-            "Lineage Path Tracing"
+            "Lineage Path Tracing",
+            "Data Parsing & Validation"
         ]
     }
 
 
+@app.get("/api", tags=["Documentation"])
+async def api_documentation():
+    """API documentation overview"""
+    return {
+        "title": "Data Lineage API (Enhanced)",
+        "version": "2.0.0",
+        "description": "Enterprise Data Lineage & Schema Management API",
+        "endpoints": {
+            "schemas": {
+                "GET /api/v1/schemas": "List all schemas",
+                "POST /api/v1/schemas": "Create new schema",
+                "GET /api/v1/schemas/{id}": "Get schema by ID",
+                "GET /api/v1/schemas/{id}/lineage": "Get schema lineage graph",
+                "POST /api/v1/schemas/infer": "Infer schema from single file",
+                "POST /api/v1/schemas/infer-multi": "Infer unified schema from multiple files",
+                "POST /api/v1/schemas/{id}/load-data": "Load data into schema"
+            },
+            "data": {
+                "POST /api/v1/data/parse": "Parse file and return structure",
+                "POST /api/v1/data/preview": "Preview file contents",
+                "POST /api/v1/data/validate": "Validate file format"
+            }
+        },
+        "interactive_docs": "/docs",
+        "openapi_schema": "/openapi.json"
+    }
+
+
+# Main entry point for uvicorn
 if __name__ == "__main__":
     import uvicorn
     import os
@@ -297,6 +315,8 @@ if __name__ == "__main__":
         logger.info("=" * 60)
         logger.info("⚡ Hot reload: ENABLED")
         logger.info("🐛 Debug mode: ENABLED")
+        logger.info("📍 Server: http://0.0.0.0:8000")
+        logger.info("📍 Docs: http://localhost:8000/docs")
         logger.info("=" * 60)
     else:
         config.update({
@@ -308,6 +328,7 @@ if __name__ == "__main__":
         logger.info("🚀 Starting in PRODUCTION mode")
         logger.info("=" * 60)
         logger.info("👷 Workers: 4")
+        logger.info("📍 Server: http://0.0.0.0:8000")
         logger.info("=" * 60)
     
     uvicorn.run(**config)

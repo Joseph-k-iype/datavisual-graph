@@ -1,4 +1,4 @@
-// frontend/src/components/data/FileUploader.tsx - MULTI-FILE SUPPORT
+// frontend/src/components/data/FileUploader.tsx - FIXED ALL ISSUES
 import React, { useCallback, useState, useRef } from 'react';
 import {
   Box,
@@ -21,7 +21,6 @@ import {
   InsertDriveFile,
   Close,
   CheckCircle,
-  Add,
   Delete,
 } from '@mui/icons-material';
 
@@ -31,7 +30,7 @@ interface FileUploaderProps {
   onFileSelect: (files: File[], formats: FileFormat[]) => void;
   acceptedFormats?: FileFormat[];
   maxSizeMB?: number;
-  multiFile?: boolean;  // NEW: Enable multi-file mode
+  multiFile?: boolean;
 }
 
 const FORMAT_EXTENSIONS: Record<FileFormat, string[]> = {
@@ -57,7 +56,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
   onFileSelect,
   acceptedFormats = ['csv', 'excel', 'json', 'xml'],
   maxSizeMB = 10,
-  multiFile = true,  // Default to multi-file mode
+  multiFile = true,
 }) => {
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -79,7 +78,6 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
 
   const validateFile = useCallback(
     (file: File): { valid: boolean; format?: FileFormat; error?: string } => {
-      // Check file size
       const sizeMB = file.size / (1024 * 1024);
       if (sizeMB > maxSizeMB) {
         return {
@@ -88,7 +86,6 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
         };
       }
 
-      // Detect format
       const format = detectFormat(file.name);
       if (!format) {
         return {
@@ -111,7 +108,6 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
       Array.from(files).forEach((file) => {
         const validation = validateFile(file);
         if (validation.valid && validation.format) {
-          // Check for duplicates
           const isDuplicate = selectedFiles.some((sf) => sf.file.name === file.name);
           if (!isDuplicate) {
             newFiles.push({ file, format: validation.format });
@@ -176,9 +172,21 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
     setIsDragActive(false);
   }, []);
 
-  const handleBrowseClick = useCallback(() => {
+  // FIXED: Prevent double-click by stopping propagation on button
+  const handleBrowseClick = useCallback((e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+    }
     fileInputRef.current?.click();
   }, []);
+
+  // FIXED: Separate handler for Paper click to avoid double trigger
+  const handlePaperClick = useCallback(() => {
+    // Only open file picker if no files selected yet
+    if (selectedFiles.length === 0) {
+      fileInputRef.current?.click();
+    }
+  }, [selectedFiles.length]);
 
   const handleUpload = useCallback(async () => {
     if (selectedFiles.length === 0) return;
@@ -224,7 +232,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
 
   return (
     <Box>
-      {/* Hidden file input */}
+      {/* Hidden file input - FIXED: Added multiple attribute properly */}
       <input
         ref={fileInputRef}
         type="file"
@@ -234,11 +242,12 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
         style={{ display: 'none' }}
       />
 
-      {/* Drop Zone */}
+      {/* Drop Zone - FIXED: Only clickable if no files selected */}
       <Paper
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
+        onClick={handlePaperClick}
         sx={{
           p: 4,
           textAlign: 'center',
@@ -246,14 +255,13 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
           borderStyle: 'dashed',
           borderColor: isDragActive ? 'primary.main' : 'divider',
           bgcolor: isDragActive ? 'action.hover' : 'background.paper',
-          cursor: 'pointer',
+          cursor: selectedFiles.length === 0 ? 'pointer' : 'default',
           transition: 'all 0.2s',
           '&:hover': {
-            borderColor: 'primary.main',
-            bgcolor: 'action.hover',
+            borderColor: selectedFiles.length === 0 ? 'primary.main' : 'divider',
+            bgcolor: selectedFiles.length === 0 ? 'action.hover' : 'background.paper',
           },
         }}
-        onClick={handleBrowseClick}
       >
         <CloudUpload
           sx={{
@@ -272,12 +280,17 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
         <Typography variant="body2" color="text.secondary" gutterBottom>
           or
         </Typography>
-        <Button variant="contained" sx={{ mt: 2 }} onClick={handleBrowseClick}>
+        {/* FIXED: Button with stopPropagation to prevent double click */}
+        <Button 
+          variant="contained" 
+          sx={{ mt: 2 }} 
+          onClick={handleBrowseClick}
+        >
           {selectedFiles.length > 0 && multiFile ? 'Add More Files' : 'Browse Files'}
         </Button>
         {multiFile && (
           <Typography variant="body2" color="primary" sx={{ mt: 2, fontWeight: 600 }}>
-            ✨ Select multiple files to infer unified schema
+            ✨ Select multiple files (Cmd+Click or Ctrl+Click)
           </Typography>
         )}
         <Stack direction="row" spacing={1} justifyContent="center" mt={3} flexWrap="wrap">
@@ -323,7 +336,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({
 
           <List sx={{ maxHeight: 300, overflow: 'auto' }}>
             {selectedFiles.map((sf, index) => (
-              <React.Fragment key={index}>
+              <React.Fragment key={`${sf.file.name}-${index}`}>
                 <ListItem>
                   <Box sx={{ mr: 2 }}>
                     <InsertDriveFile color="primary" />

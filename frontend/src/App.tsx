@@ -1,4 +1,4 @@
-// frontend/src/App.tsx - ERRORS FIXED
+// frontend/src/App.tsx - FIXED TYPE ERRORS
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   Box,
@@ -18,7 +18,7 @@ import {
   Upload,
   Refresh,
   Home,
-  Close,  // ← ADDED: Import Close icon
+  Close,
 } from '@mui/icons-material';
 import { Node } from 'reactflow';
 
@@ -80,20 +80,25 @@ function App() {
     },
   });
 
-  // Build hierarchy tree from graph
+  // FIXED: Build hierarchy tree from graph nodes
   const hierarchyTree = useMemo<HierarchyTree | null>(() => {
     if (!graph || !graph.nodes || graph.nodes.length === 0) {
       return null;
     }
 
     try {
-      // Build parent-child map from edges
+      // Build parent-child map from edges (only hierarchy edges)
       const parentMap = new Map<string, string>();
       const childrenMap = new Map<string, string[]>();
 
+      // FIXED: Check edge.type and edge.label (not edge.name which doesn't exist)
       graph.edges.forEach(edge => {
-        // ← FIXED: Check for 'schema' type instead of 'schema_relationship'
-        if (edge.type === 'schema' || edge.type === 'hierarchy') {
+        // Look for hierarchy relationship types
+        const hierarchyTypes = ['inherits', 'is_a', 'subclass_of', 'extends', 'hierarchy'];
+        const edgeType = edge.type?.toLowerCase() || '';
+        const edgeLabel = edge.label?.toLowerCase() || '';
+        
+        if (hierarchyTypes.some(type => edgeType.includes(type) || edgeLabel.includes(type))) {
           parentMap.set(edge.target, edge.source);
           if (!childrenMap.has(edge.source)) {
             childrenMap.set(edge.source, []);
@@ -102,10 +107,16 @@ function App() {
         }
       });
 
-      // Find root nodes (no parent)
+      // FIXED: node.type is 'class' | 'attribute' | 'instance' | 'attribute_value', not 'schema_class'
       const rootNodeIds = graph.nodes
-        .filter(node => !parentMap.has(node.id))
+        .filter(node => node.type === 'class' && !parentMap.has(node.id))
         .map(node => node.id);
+
+      console.log('🌲 Building hierarchy tree:', {
+        totalNodes: graph.nodes.length,
+        rootNodes: rootNodeIds.length,
+        classNodes: graph.nodes.filter(n => n.type === 'class').length,
+      });
 
       // Build hierarchy recursively
       const buildHierarchyNode = (nodeId: string, level: number): HierarchyNode => {
@@ -117,30 +128,61 @@ function App() {
         const children = (childrenMap.get(nodeId) || [])
           .map(childId => buildHierarchyNode(childId, level + 1));
 
+        // Extract attributes from node
+        let attributes = graphNode.attributes || [];
+        
+        // If attributes is a string, parse it
+        if (typeof attributes === 'string') {
+          try {
+            attributes = JSON.parse(attributes);
+          } catch {
+            attributes = [];
+          }
+        }
+
+        // Ensure attributes is an array
+        if (!Array.isArray(attributes)) {
+          attributes = [];
+        }
+
         return {
           id: nodeId,
           name: graphNode.name,
           display_name: graphNode.display_name || graphNode.name,
-          type: 'class',
+          type: children.length > 0 ? 'class' : 'class',
           level,
           parent_id: parentMap.get(nodeId),
           children,
-          attributes: graphNode.data?.attributes || [],
+          attributes: attributes,
           instance_count: graphNode.instance_count || 0,
-          collapsed: graphNode.collapsed || false,
+          collapsed: false,
           metadata: graphNode.metadata || {},
         };
       };
 
       const rootNodes = rootNodeIds.map(id => buildHierarchyNode(id, 0));
 
-      const maxDepth = Math.max(...graph.nodes.map(n => n.level || 0), 0);
+      const maxDepth = Math.max(
+        ...rootNodes.map(node => {
+          const getMaxDepth = (n: HierarchyNode): number => {
+            if (n.children.length === 0) return n.level;
+            return Math.max(...n.children.map(getMaxDepth));
+          };
+          return getMaxDepth(node);
+        }),
+        0
+      );
 
       return {
         schema_id: graph.schema_id,
         root_nodes: rootNodes,
         max_depth: maxDepth + 1,
-        total_nodes: graph.nodes.length,
+        total_nodes: rootNodes.reduce((sum, node) => {
+          const countNodes = (n: HierarchyNode): number => {
+            return 1 + n.children.reduce((s, c) => s + countNodes(c), 0);
+          };
+          return sum + countNodes(node);
+        }, 0),
         metadata: {},
       };
     } catch (error) {
@@ -269,7 +311,6 @@ function App() {
     
     await loadSchemas();
     
-    // Small delay to ensure schema is fully saved
     setTimeout(() => {
       handleSchemaSelect(schema);
     }, 500);
@@ -447,7 +488,7 @@ function App() {
               )}
             </Drawer>
 
-            {/* Main Canvas */}
+            {/* Main Canvas - FIXED: Pass graph object, not nodes/edges */}
             <Box sx={{ flexGrow: 1, position: 'relative', height: '100%' }}>
               {graphLoading ? (
                 <Box display="flex" justifyContent="center" alignItems="center" height="100%">
@@ -457,57 +498,17 @@ function App() {
                 <LineageCanvas
                   graph={graph}
                   onNodeClick={handleNodeClick}
-                  showAttributes={true}
                   highlightedNodes={highlightedNodes}
                   highlightedEdges={highlightedEdges}
                 />
               ) : (
                 <Box display="flex" justifyContent="center" alignItems="center" height="100%">
-                  <Stack spacing={2} alignItems="center">
-                    <Typography variant="h6" color="text.secondary">
-                      No data to display
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {currentSchema 
-                        ? 'Schema created successfully! The graph will appear after data is loaded.'
-                        : 'Select a schema to view its lineage.'}
-                    </Typography>
-                  </Stack>
+                  <Typography variant="h6" color="text.secondary">
+                    No data to display. Load some data to see the lineage graph.
+                  </Typography>
                 </Box>
               )}
             </Box>
-
-            {/* Right Drawer - Details */}
-            <Drawer
-              anchor="right"
-              open={rightDrawerOpen}
-              onClose={() => setRightDrawerOpen(false)}
-              sx={{
-                width: 400,
-                flexShrink: 0,
-                '& .MuiDrawer-paper': {
-                  width: 400,
-                  position: 'relative',
-                  height: '100%',
-                },
-              }}
-            >
-              <Box sx={{ p: 2 }}>
-                <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-                  <Typography variant="h6">Details</Typography>
-                  <IconButton onClick={() => setRightDrawerOpen(false)}>
-                    <Close />
-                  </IconButton>
-                </Stack>
-                {highlightedNodes.length > 0 && (
-                  <Stack spacing={2}>
-                    <Typography variant="body2" color="text.secondary">
-                      Showing lineage for {highlightedNodes.length} nodes
-                    </Typography>
-                  </Stack>
-                )}
-              </Box>
-            </Drawer>
           </Box>
         );
       
