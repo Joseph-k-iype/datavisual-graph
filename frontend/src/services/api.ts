@@ -1,4 +1,4 @@
-// frontend/src/services/api.ts - ENHANCED WITH RELATIONSHIP CREATION
+// frontend/src/services/api.ts - COMPLETE FILE
 
 import axios, { AxiosInstance } from 'axios';
 import { 
@@ -78,7 +78,7 @@ class APIService {
   }
 
   // ============================================
-  // ✅ NEW: RELATIONSHIP OPERATIONS
+  // ✅ RELATIONSHIP OPERATIONS
   // ============================================
 
   async createRelationship(
@@ -189,34 +189,6 @@ class APIService {
   }
 
   // ============================================
-  // HIERARCHY OPERATIONS
-  // ============================================
-
-  async createSubclass(
-    schemaId: string,
-    parentClassId: string,
-    subclassData: any
-  ): Promise<any> {
-    console.log('➕ Creating subclass under parent:', parentClassId);
-    
-    const response = await this.client.post(
-      `/hierarchy/${schemaId}/subclass`,
-      {
-        parent_class_id: parentClassId,
-        ...subclassData,
-      }
-    );
-    
-    console.log('✅ Subclass created:', response.data.id);
-    return response.data;
-  }
-
-  async getHierarchyTree(schemaId: string): Promise<any> {
-    const response = await this.client.get(`/hierarchy/${schemaId}/tree`);
-    return response.data;
-  }
-
-  // ============================================
   // DATA OPERATIONS
   // ============================================
 
@@ -240,17 +212,9 @@ class APIService {
     return response.data;
   }
 
-  // ✅ FIX: Corrected loadData signature to match usage
   async loadData(dataLoadRequest: any): Promise<any> {
     console.log('📊 Loading data for schema:', dataLoadRequest.schema_id);
 
-    // Create FormData for file upload
-    const formData = new FormData();
-    
-    // If there's a file in the request, we need to handle it
-    // The actual implementation depends on your backend API
-    // For now, assuming the request contains all necessary data
-    
     const response = await this.client.post('/data/load', dataLoadRequest);
 
     console.log('✅ Data loaded');

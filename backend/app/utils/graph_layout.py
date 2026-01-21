@@ -1,4 +1,4 @@
-# backend/app/utils/graph_layout.py - FIXED VERSION WITH CYCLE DETECTION
+# backend/app/utils/graph_layout.py
 """
 Graph Layout Utilities
 Auto-generates tree layout positions for nodes with proper cycle detection
@@ -19,6 +19,101 @@ class GraphLayoutEngine:
     ROOT_X = 400             # Starting X position
     ROOT_Y = 50              # Starting Y position
     MAX_DEPTH = 100          # Maximum tree depth to prevent infinite recursion
+    
+    @staticmethod
+    def calculate_hierarchical_layout(
+        node_data_list: List[Dict[str, Any]],
+        direction: str = 'horizontal'
+    ) -> Dict[str, Dict[str, float]]:
+        """
+        Calculate hierarchical layout positions for nodes
+        ✅ NEW METHOD - matches the call in schema_service.py
+        
+        Args:
+            node_data_list: List of dicts with 'id', 'level', 'parent_id'
+            direction: 'horizontal' or 'vertical' (currently only horizontal supported)
+            
+        Returns:
+            Dictionary mapping node_id -> {'x': float, 'y': float}
+        """
+        try:
+            if not node_data_list:
+                logger.warning("No nodes to layout")
+                return {}
+            
+            # Build adjacency list (parent -> children)
+            children_map: Dict[str, List[str]] = {}
+            parent_map: Dict[str, str] = {}
+            
+            for node_data in node_data_list:
+                node_id = node_data['id']
+                parent_id = node_data.get('parent_id')
+                
+                if parent_id:
+                    if parent_id not in children_map:
+                        children_map[parent_id] = []
+                    children_map[parent_id].append(node_id)
+                    parent_map[node_id] = parent_id
+            
+            # Find root nodes (nodes with no parents)
+            node_ids = {node['id'] for node in node_data_list}
+            root_ids = [nid for nid in node_ids if nid not in parent_map]
+            
+            logger.info(f"Found {len(root_ids)} root nodes out of {len(node_data_list)} total nodes")
+            
+            # If no clear roots, use nodes with level=0 or first node as root
+            if not root_ids and node_data_list:
+                root_ids = [node['id'] for node in node_data_list if node.get('level', 0) == 0]
+                if not root_ids:
+                    root_ids = [node_data_list[0]['id']]
+                logger.warning(f"No root nodes found by parent relationships, using level-based roots: {root_ids}")
+            
+            # Calculate positions using tree layout with cycle detection
+            positions = {}
+            visited = set()  # Track nodes in current traversal path
+            
+            if root_ids:
+                # Calculate layout for each root tree
+                x_offset = GraphLayoutEngine.ROOT_X
+                
+                for root_id in root_ids:
+                    tree_width = GraphLayoutEngine._layout_tree(
+                        root_id, 
+                        children_map, 
+                        positions, 
+                        visited,
+                        x_offset, 
+                        GraphLayoutEngine.ROOT_Y,
+                        0
+                    )
+                    x_offset += tree_width + GraphLayoutEngine.HORIZONTAL_SPACING * 2
+            
+            # Add fallback positions for orphan nodes
+            for node_data in node_data_list:
+                node_id = node_data['id']
+                if node_id not in positions:
+                    fallback_x = GraphLayoutEngine.ROOT_X + len(positions) * GraphLayoutEngine.HORIZONTAL_SPACING
+                    fallback_y = GraphLayoutEngine.ROOT_Y + node_data.get('level', 0) * GraphLayoutEngine.VERTICAL_SPACING
+                    positions[node_id] = {'x': fallback_x, 'y': fallback_y}
+                    logger.warning(f"Node {node_id} has no calculated position, using fallback")
+            
+            logger.info(f"✅ Calculated positions for {len(positions)} nodes")
+            return positions
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to calculate hierarchical layout: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            
+            # Return fallback positions
+            positions = {}
+            for i, node_data in enumerate(node_data_list):
+                level = node_data.get('level', 0)
+                positions[node_data['id']] = {
+                    'x': GraphLayoutEngine.ROOT_X + (i % 5) * GraphLayoutEngine.HORIZONTAL_SPACING,
+                    'y': GraphLayoutEngine.ROOT_Y + level * GraphLayoutEngine.VERTICAL_SPACING
+                }
+            return positions
     
     @staticmethod
     def calculate_tree_layout(
