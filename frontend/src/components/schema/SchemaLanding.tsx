@@ -1,4 +1,4 @@
-// frontend/src/components/schema/SchemaLanding.tsx - FIXED for multi-file
+// frontend/src/components/schema/SchemaLanding.tsx - FIXED API Response Handling
 import React, { useState, useCallback } from 'react';
 import {
   Box,
@@ -38,7 +38,7 @@ interface SchemaLandingProps {
   schemas: SchemaDefinition[];
   onSchemaSelect: (schema: SchemaDefinition) => void;
   onCreateNew: () => void;
-  onUploadData: (files: File[], formats: FileFormat[]) => void;  // FIXED: Arrays
+  onUploadData: (files: File[], formats: FileFormat[]) => void;
   onDeleteSchema: (schemaId: string) => void;
   loading?: boolean;
 }
@@ -70,11 +70,31 @@ export const SchemaLanding: React.FC<SchemaLandingProps> = ({
   }, [schemaToDelete, onDeleteSchema]);
 
   const handleFileUpload = useCallback((files: File[], formats: FileFormat[]) => {
-    onUploadData(files, formats);  // FIXED: Pass arrays
+    onUploadData(files, formats);
     setUploadDialogOpen(false);
   }, [onUploadData]);
 
   const hasSchemas = schemas.length > 0;
+
+  // Helper function to safely get class count
+  const getClassCount = (schema: any) => {
+    if (schema.class_count !== undefined) return schema.class_count;
+    if (schema.classes && Array.isArray(schema.classes)) return schema.classes.length;
+    return 0;
+  };
+
+  // Helper function to safely get relationship count
+  const getRelationshipCount = (schema: any) => {
+    if (schema.relationship_count !== undefined) return schema.relationship_count;
+    if (schema.relationships && Array.isArray(schema.relationships)) return schema.relationships.length;
+    return 0;
+  };
+
+  // Helper function to safely get instance count
+  const getInstanceCount = (schema: any) => {
+    if (schema.instance_count !== undefined) return schema.instance_count;
+    return 0;
+  };
 
   return (
     <Box
@@ -128,55 +148,47 @@ export const SchemaLanding: React.FC<SchemaLandingProps> = ({
         {/* Empty State or Schema Grid */}
         {!hasSchemas && !loading ? (
           <Paper
-            elevation={0}
+            elevation={1}
             sx={{
-              p: 8,
+              p: 6,
               textAlign: 'center',
-              background: (theme) => alpha(theme.palette.background.paper, 0.6),
-              backdropFilter: 'blur(10px)',
               border: '2px dashed',
               borderColor: 'divider',
-              borderRadius: 3,
             }}
           >
-            <FolderOpen
-              sx={{
-                fontSize: 120,
-                color: 'text.disabled',
-                mb: 3,
-              }}
-            />
-            <Typography variant="h5" gutterBottom fontWeight="medium">
+            <FolderOpen sx={{ fontSize: 80, color: 'text.secondary', mb: 2 }} />
+            <Typography variant="h5" gutterBottom>
               No Schemas Yet
             </Typography>
             <Typography variant="body1" color="text.secondary" paragraph>
-              Get started by creating a new schema or uploading data to automatically infer the schema structure
+              Get started by creating a schema or uploading data files
             </Typography>
+
             <Stack direction="row" spacing={2} justifyContent="center" mt={4}>
               <Button
                 variant="contained"
-                size="large"
                 startIcon={<Add />}
                 onClick={onCreateNew}
+                size="large"
               >
                 Create Schema
               </Button>
               <Button
                 variant="outlined"
-                size="large"
-                startIcon={<CloudUpload />}
+                startIcon={<Upload />}
                 onClick={() => setUploadDialogOpen(true)}
+                size="large"
               >
                 Upload Data
               </Button>
             </Stack>
 
             {/* Feature Highlights */}
-            <Grid container spacing={3} mt={6}>
+            <Grid container spacing={3} mt={4}>
               <Grid item xs={12} md={4}>
                 <Stack spacing={1} alignItems="center">
                   <SchemaIcon fontSize="large" color="primary" />
-                  <Typography variant="h6">Hierarchical Schemas</Typography>
+                  <Typography variant="h6">Hierarchical Classes</Typography>
                   <Typography variant="body2" color="text.secondary" textAlign="center">
                     Create unlimited parent-child class relationships at any depth
                   </Typography>
@@ -259,16 +271,23 @@ export const SchemaLanding: React.FC<SchemaLandingProps> = ({
                       <Stack direction="row" spacing={1} flexWrap="wrap">
                         <Chip
                           size="small"
-                          label={`${schema.classes.length} classes`}
+                          label={`${getClassCount(schema)} classes`}
                           icon={<DataObject />}
                           variant="outlined"
                         />
                         <Chip
                           size="small"
-                          label={`${schema.relationships.length} relations`}
+                          label={`${getRelationshipCount(schema)} relations`}
                           icon={<AccountTree />}
                           variant="outlined"
                         />
+                        {getInstanceCount(schema) > 0 && (
+                          <Chip
+                            size="small"
+                            label={`${getInstanceCount(schema)} instances`}
+                            variant="outlined"
+                          />
+                        )}
                       </Stack>
 
                       {schema.version && (
@@ -346,7 +365,11 @@ export const SchemaLanding: React.FC<SchemaLandingProps> = ({
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
-          <Button onClick={handleDeleteConfirm} color="error" variant="contained">
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleDeleteConfirm}
+          >
             Delete
           </Button>
         </DialogActions>

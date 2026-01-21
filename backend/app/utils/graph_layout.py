@@ -1,4 +1,4 @@
-# backend/app/utils/graph_layout.py - NEW FILE
+# backend/app/utils/graph_layout.py - COMPLETE WORKING VERSION
 """
 Graph Layout Utilities
 Auto-generates tree layout positions for nodes
@@ -32,16 +32,22 @@ class GraphLayoutEngine:
             edges: List of edge dictionaries
             
         Returns:
-            List of nodes with calculated positions
+            List of nodes with calculated positions (modifies nodes in-place)
         """
         try:
+            if not nodes:
+                logger.warning("No nodes to layout")
+                return nodes
+            
             # Build adjacency list (parent -> children)
             children_map: Dict[str, List[str]] = {}
             parent_map: Dict[str, str] = {}
             
             for edge in edges:
-                source = edge.get('source_class_id') or edge.get('source')
-                target = edge.get('target_class_id') or edge.get('target')
+                # Handle both formats: edge dict with 'source'/'target' 
+                # or 'source_class_id'/'target_class_id'
+                source = edge.get('source') or edge.get('source_class_id')
+                target = edge.get('target') or edge.get('target_class_id')
                 
                 if source and target:
                     if source not in children_map:
@@ -55,10 +61,12 @@ class GraphLayoutEngine:
             
             logger.info(f"Found {len(root_ids)} root nodes out of {len(nodes)} total nodes")
             
-            # If no clear roots, use first node as root
+            # If no clear roots, use nodes with level=0 or first node as root
             if not root_ids and nodes:
-                root_ids = [nodes[0]['id']]
-                logger.warning(f"No root nodes found, using {root_ids[0]} as root")
+                root_ids = [node['id'] for node in nodes if node.get('level', 0) == 0]
+                if not root_ids:
+                    root_ids = [nodes[0]['id']]
+                logger.warning(f"No root nodes found by parent relationships, using level-based roots: {root_ids}")
             
             # Calculate positions using tree layout
             positions = {}
@@ -78,30 +86,33 @@ class GraphLayoutEngine:
                     )
                     x_offset += tree_width + GraphLayoutEngine.HORIZONTAL_SPACING * 2
             
-            # Apply positions to nodes
+            # Apply positions to nodes (nodes are dicts, so we can modify them)
             for node in nodes:
                 node_id = node['id']
                 if node_id in positions:
                     node['position'] = positions[node_id]
                 else:
                     # Fallback position for orphan nodes
-                    node['position'] = {
-                        'x': GraphLayoutEngine.ROOT_X + len(positions) * GraphLayoutEngine.HORIZONTAL_SPACING,
-                        'y': GraphLayoutEngine.ROOT_Y
-                    }
-                    logger.warning(f"Node {node_id} has no calculated position, using fallback")
+                    fallback_x = GraphLayoutEngine.ROOT_X + len(positions) * GraphLayoutEngine.HORIZONTAL_SPACING
+                    fallback_y = GraphLayoutEngine.ROOT_Y + node.get('level', 0) * GraphLayoutEngine.VERTICAL_SPACING
+                    node['position'] = {'x': fallback_x, 'y': fallback_y}
+                    logger.warning(f"Node {node_id} ({node.get('name', 'unknown')}) has no calculated position, using fallback at ({fallback_x}, {fallback_y})")
             
             logger.info(f"✅ Calculated positions for {len(positions)} nodes")
             return nodes
             
         except Exception as e:
             logger.error(f"❌ Failed to calculate layout: {str(e)}")
-            # Return nodes with default positions
+            import traceback
+            logger.error(traceback.format_exc())
+            
+            # Return nodes with default positions as fallback
             for i, node in enumerate(nodes):
-                if 'position' not in node or not node['position']:
+                if 'position' not in node or not node.get('position'):
+                    level = node.get('level', 0)
                     node['position'] = {
                         'x': GraphLayoutEngine.ROOT_X + (i % 5) * GraphLayoutEngine.HORIZONTAL_SPACING,
-                        'y': GraphLayoutEngine.ROOT_Y + (i // 5) * GraphLayoutEngine.VERTICAL_SPACING
+                        'y': GraphLayoutEngine.ROOT_Y + level * GraphLayoutEngine.VERTICAL_SPACING
                     }
             return nodes
     
@@ -117,6 +128,14 @@ class GraphLayoutEngine:
         """
         Recursively layout tree using post-order traversal
         
+        Args:
+            node_id: Current node ID
+            children_map: Map of parent ID -> list of child IDs
+            positions: Dictionary to store calculated positions
+            x: Starting X position
+            y: Starting Y position
+            level: Current depth level
+            
         Returns:
             Width of the subtree
         """
@@ -165,6 +184,10 @@ class GraphLayoutEngine:
         """
         Build hierarchical tree structure from flat nodes and edges
         
+        Args:
+            nodes: List of node dictionaries
+            edges: List of edge dictionaries
+            
         Returns:
             HierarchyTree structure with root_nodes
         """
@@ -192,12 +215,16 @@ class GraphLayoutEngine:
             
             # Build hierarchy recursively
             def build_node(node_id: str, level: int = 0) -> Dict[str, Any]:
-                node = node_lookup[node_id]
+                node = node_lookup.get(node_id)
+                if not node:
+                    return None
                 
                 children = []
                 for child_id in children_map.get(node_id, []):
                     if child_id in node_lookup:
-                        children.append(build_node(child_id, level + 1))
+                        child_node = build_node(child_id, level + 1)
+                        if child_node:
+                            children.append(child_node)
                 
                 return {
                     'id': node_id,
@@ -213,7 +240,11 @@ class GraphLayoutEngine:
                     'metadata': node.get('metadata', {})
                 }
             
-            root_nodes = [build_node(rid) for rid in root_ids]
+            root_nodes = []
+            for rid in root_ids:
+                root_node = build_node(rid)
+                if root_node:
+                    root_nodes.append(root_node)
             
             return {
                 'schema_id': nodes[0].get('schema_id', '') if nodes else '',
@@ -225,6 +256,8 @@ class GraphLayoutEngine:
             
         except Exception as e:
             logger.error(f"❌ Failed to build hierarchy tree: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             return {
                 'schema_id': '',
                 'root_nodes': [],

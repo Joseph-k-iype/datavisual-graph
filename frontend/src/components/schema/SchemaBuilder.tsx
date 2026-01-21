@@ -1,4 +1,4 @@
-// frontend/src/components/schema/SchemaBuilder.tsx
+// frontend/src/components/schema/SchemaBuilder.tsx - WITH SCROLL FIXED
 import React, { useState, useCallback } from 'react';
 import {
   Box,
@@ -150,10 +150,13 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
   }, [findClassById]);
 
   const handleSaveClass = useCallback(() => {
-    if (!newClassName.trim()) return;
-
-    const filteredAttributes = newAttributes.filter(attr => attr.trim() !== '');
+    const filteredAttributes = newAttributes.filter((attr) => attr.trim() !== '');
     
+    if (!newClassName.trim()) {
+      alert('Class name is required');
+      return;
+    }
+
     if (editingClass) {
       // Update existing class
       const updateClass = (classList: SchemaClass[]): SchemaClass[] => {
@@ -163,14 +166,19 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
               ...cls,
               name: newClassName,
               attributes: filteredAttributes,
+              parent_id: parentClassId || undefined,
             };
           }
-          return {
-            ...cls,
-            children: updateClass(cls.children),
-          };
+          if (cls.children.length > 0) {
+            return {
+              ...cls,
+              children: updateClass(cls.children),
+            };
+          }
+          return cls;
         });
       };
+
       setClasses(updateClass(classes));
     } else {
       // Add new class
@@ -179,28 +187,35 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
         name: newClassName,
         attributes: filteredAttributes,
         parent_id: parentClassId || undefined,
-        level: 0,
+        level: parentClassId ? (findClassById(parentClassId)?.level || 0) + 1 : 0,
         children: [],
+        metadata: {
+          level: parentClassId ? (findClassById(parentClassId)?.level || 0) + 1 : 0,
+          parent_id: parentClassId || undefined,
+        },
       };
 
       if (parentClassId) {
         // Add as child
-        const addChild = (classList: SchemaClass[]): SchemaClass[] => {
+        const addToParent = (classList: SchemaClass[]): SchemaClass[] => {
           return classList.map((cls) => {
             if (cls.id === parentClassId) {
-              newClass.level = cls.level + 1;
               return {
                 ...cls,
                 children: [...cls.children, newClass],
               };
             }
-            return {
-              ...cls,
-              children: addChild(cls.children),
-            };
+            if (cls.children.length > 0) {
+              return {
+                ...cls,
+                children: addToParent(cls.children),
+              };
+            }
+            return cls;
           });
         };
-        setClasses(addChild(classes));
+
+        setClasses(addToParent(classes));
       } else {
         // Add as root
         setClasses([...classes, newClass]);
@@ -208,21 +223,30 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
     }
 
     setClassDialogOpen(false);
-  }, [editingClass, newClassName, newAttributes, parentClassId, classes]);
+    setNewClassName('');
+    setNewAttributes(['']);
+    setParentClassId('');
+    setEditingClass(null);
+  }, [newClassName, newAttributes, parentClassId, editingClass, classes, findClassById]);
 
   const handleDeleteClass = useCallback((classId: string) => {
-    const deleteClass = (classList: SchemaClass[]): SchemaClass[] => {
+    if (!confirm('Delete this class? This will also delete its children and related relationships.')) {
+      return;
+    }
+
+    // Remove class and its children
+    const removeClass = (classList: SchemaClass[]): SchemaClass[] => {
       return classList
         .filter((cls) => cls.id !== classId)
         .map((cls) => ({
           ...cls,
-          children: deleteClass(cls.children),
+          children: removeClass(cls.children),
         }));
     };
 
-    setClasses(deleteClass(classes));
-    
-    // Remove relationships involving this class
+    setClasses(removeClass(classes));
+
+    // Remove related relationships
     setRelationships(
       relationships.filter(
         (rel) => rel.source_class_id !== classId && rel.target_class_id !== classId
@@ -241,11 +265,14 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
   }, []);
 
   const handleSaveRelationship = useCallback(() => {
-    if (!relationshipForm.source_class_id || !relationshipForm.target_class_id) return;
+    if (!relationshipForm.name.trim() || !relationshipForm.source_class_id || !relationshipForm.target_class_id) {
+      alert('All fields are required');
+      return;
+    }
 
     const newRelationship: SchemaRelationship = {
       id: uuidv4(),
-      name: relationshipForm.name || 'related to',
+      name: relationshipForm.name,
       source_class_id: relationshipForm.source_class_id,
       target_class_id: relationshipForm.target_class_id,
       cardinality: relationshipForm.cardinality,
@@ -256,17 +283,20 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
   }, [relationshipForm, relationships]);
 
   const handleDeleteRelationship = useCallback((relationshipId: string) => {
+    if (!confirm('Delete this relationship?')) {
+      return;
+    }
     setRelationships(relationships.filter((rel) => rel.id !== relationshipId));
   }, [relationships]);
 
   const handleSaveSchema = useCallback(async () => {
     if (!schemaName.trim()) {
-      alert('Please provide a schema name');
+      alert('Schema name is required');
       return;
     }
 
-    if (classes.length === 0) {
-      alert('Please add at least one class');
+    if (flattenClasses(classes).length === 0) {
+      alert('At least one class is required');
       return;
     }
 
@@ -283,8 +313,8 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
           name: cls.name,
           attributes: cls.attributes,
           metadata: {
-            parent_id: cls.parent_id,
             level: cls.level,
+            parent_id: cls.parent_id,
           },
         })),
         relationships: relationships.map((rel) => ({
@@ -306,61 +336,75 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
     }
   }, [schemaName, schemaDescription, classes, relationships, flattenClasses, onSchemaCreated]);
 
-  const handleAttributeChange = useCallback((index: number, value: string) => {
-    const updated = [...newAttributes];
-    updated[index] = value;
-    setNewAttributes(updated);
-  }, [newAttributes]);
-
-  const handleAddAttribute = useCallback(() => {
-    setNewAttributes([...newAttributes, '']);
-  }, [newAttributes]);
-
-  const handleRemoveAttribute = useCallback((index: number) => {
-    setNewAttributes(newAttributes.filter((_, i) => i !== index));
-  }, [newAttributes]);
-
-  const renderClassTree = useCallback((classList: SchemaClass[]) => {
+  const renderClassTree = (classList: SchemaClass[]) => {
     return classList.map((cls) => (
       <TreeItem
         key={cls.id}
         nodeId={cls.id}
         label={
-          <Stack direction="row" alignItems="center" spacing={1} py={0.5}>
-            <DataObject fontSize="small" />
-            <Typography variant="body2">{cls.name}</Typography>
-            <Chip size="small" label={`${cls.attributes.length} attrs`} />
-            <Box sx={{ flexGrow: 1 }} />
-            <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleEditClass(cls.id); }}>
-              <EditNote fontSize="small" />
-            </IconButton>
-            <IconButton
-              size="small"
-              onClick={(e) => { e.stopPropagation(); handleDeleteClass(cls.id); }}
-              sx={{ color: 'error.main' }}
-            >
-              <Delete fontSize="small" />
-            </IconButton>
-          </Stack>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              py: 1,
+            }}
+          >
+            <Stack direction="row" spacing={1} alignItems="center">
+              <DataObject fontSize="small" color="primary" />
+              <Typography variant="body1" fontWeight="medium">
+                {cls.name}
+              </Typography>
+              <Chip
+                label={`${cls.attributes.length} attrs`}
+                size="small"
+                variant="outlined"
+              />
+            </Stack>
+            <Stack direction="row" spacing={0.5}>
+              <IconButton
+                size="small"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleEditClass(cls.id);
+                }}
+              >
+                <EditNote fontSize="small" />
+              </IconButton>
+              <IconButton
+                size="small"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDeleteClass(cls.id);
+                }}
+              >
+                <Delete fontSize="small" />
+              </IconButton>
+            </Stack>
+          </Box>
         }
       >
         {cls.children.length > 0 && renderClassTree(cls.children)}
       </TreeItem>
     ));
-  }, [handleEditClass, handleDeleteClass]);
-
-  const allFlatClasses = flattenClasses(classes);
+  };
 
   return (
     <Box
       sx={{
-        minHeight: '100%',
-        background: (theme) => alpha(theme.palette.background.default, 0.95),
+        minHeight: '100vh',
+        height: '100%',
+        overflow: 'auto',
+        background: (theme) =>
+          `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.05)} 0%, ${alpha(
+            theme.palette.secondary.main,
+            0.05
+          )} 100%)`,
         py: 4,
       }}
     >
-      <Container maxWidth="xl">
-        <Stack spacing={4}>
+      <Container maxWidth="xl" sx={{ height: '100%' }}>
+        <Stack spacing={3} sx={{ height: '100%' }}>
           {/* Header */}
           <Paper elevation={2} sx={{ p: 3 }}>
             <Stack spacing={2}>
@@ -393,12 +437,22 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
             </Stack>
           </Paper>
 
-          {/* Main Content */}
-          <Grid container spacing={3}>
-            {/* Classes Section */}
-            <Grid item xs={12} md={6}>
-              <Paper elevation={2} sx={{ p: 3, height: '600px', overflow: 'auto' }}>
-                <Stack spacing={2}>
+          {/* Main Content - SCROLL FIXED */}
+          <Grid container spacing={3} sx={{ flexGrow: 1, overflow: 'hidden' }}>
+            {/* Classes Section - WITH SCROLL */}
+            <Grid item xs={12} md={6} sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <Paper 
+                elevation={2} 
+                sx={{ 
+                  p: 3, 
+                  flexGrow: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  maxHeight: 'calc(100vh - 400px)',
+                  minHeight: '500px',
+                }}
+              >
+                <Stack spacing={2} sx={{ height: '100%', overflow: 'hidden' }}>
                   <Stack direction="row" justifyContent="space-between" alignItems="center">
                     <Typography variant="h6">
                       <AccountTree sx={{ mr: 1, verticalAlign: 'middle' }} />
@@ -416,32 +470,59 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
 
                   <Divider />
 
-                  {classes.length === 0 ? (
-                    <Box sx={{ textAlign: 'center', py: 6 }}>
-                      <DataObject sx={{ fontSize: 80, color: 'text.disabled', mb: 2 }} />
-                      <Typography variant="body1" color="text.secondary">
-                        No classes defined yet
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Add classes to build your schema hierarchy
-                      </Typography>
-                    </Box>
-                  ) : (
-                    <TreeView
-                      defaultCollapseIcon={<ExpandMore />}
-                      defaultExpandIcon={<ExpandMore style={{ transform: 'rotate(-90deg)' }} />}
-                    >
-                      {renderClassTree(classes)}
-                    </TreeView>
-                  )}
+                  {/* SCROLLABLE CONTENT */}
+                  <Box sx={{ flexGrow: 1, overflow: 'auto', pr: 1 }}>
+                    {classes.length === 0 ? (
+                      <Box
+                        sx={{
+                          p: 4,
+                          textAlign: 'center',
+                          border: '2px dashed',
+                          borderColor: 'divider',
+                          borderRadius: 2,
+                        }}
+                      >
+                        <DataObject sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
+                        <Typography variant="body1" color="text.secondary">
+                          No classes defined yet
+                        </Typography>
+                        <Button
+                          variant="outlined"
+                          startIcon={<Add />}
+                          onClick={handleAddClass}
+                          sx={{ mt: 2 }}
+                        >
+                          Add First Class
+                        </Button>
+                      </Box>
+                    ) : (
+                      <TreeView
+                        defaultCollapseIcon={<ExpandMore />}
+                        defaultExpandIcon={<AccountTree />}
+                        defaultExpanded={classes.map((c) => c.id)}
+                      >
+                        {renderClassTree(classes)}
+                      </TreeView>
+                    )}
+                  </Box>
                 </Stack>
               </Paper>
             </Grid>
 
-            {/* Relationships Section */}
-            <Grid item xs={12} md={6}>
-              <Paper elevation={2} sx={{ p: 3, height: '600px', overflow: 'auto' }}>
-                <Stack spacing={2}>
+            {/* Relationships Section - WITH SCROLL */}
+            <Grid item xs={12} md={6} sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <Paper 
+                elevation={2} 
+                sx={{ 
+                  p: 3, 
+                  flexGrow: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  maxHeight: 'calc(100vh - 400px)',
+                  minHeight: '500px',
+                }}
+              >
+                <Stack spacing={2} sx={{ height: '100%', overflow: 'hidden' }}>
                   <Stack direction="row" justifyContent="space-between" alignItems="center">
                     <Typography variant="h6">
                       <LinkIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
@@ -452,7 +533,7 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
                       size="small"
                       startIcon={<Add />}
                       onClick={handleAddRelationship}
-                      disabled={allFlatClasses.length < 2}
+                      disabled={flattenClasses(classes).length < 2}
                     >
                       Add Relationship
                     </Button>
@@ -460,53 +541,86 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
 
                   <Divider />
 
-                  {relationships.length === 0 ? (
-                    <Box sx={{ textAlign: 'center', py: 6 }}>
-                      <LinkIcon sx={{ fontSize: 80, color: 'text.disabled', mb: 2 }} />
-                      <Typography variant="body1" color="text.secondary">
-                        No relationships defined yet
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Link classes together to show their connections
-                      </Typography>
-                    </Box>
-                  ) : (
-                    <Stack spacing={2}>
-                      {relationships.map((rel) => {
-                        const sourceClass = findClassById(rel.source_class_id);
-                        const targetClass = findClassById(rel.target_class_id);
-                        return (
-                          <Card key={rel.id} variant="outlined">
-                            <CardContent>
-                              <Stack spacing={1}>
-                                <Typography variant="subtitle2">{rel.name}</Typography>
-                                <Stack direction="row" spacing={1} alignItems="center">
-                                  <Chip size="small" label={sourceClass?.name} />
-                                  <Typography variant="caption">→</Typography>
-                                  <Chip size="small" label={targetClass?.name} />
+                  {/* SCROLLABLE CONTENT */}
+                  <Box sx={{ flexGrow: 1, overflow: 'auto', pr: 1 }}>
+                    {relationships.length === 0 ? (
+                      <Box
+                        sx={{
+                          p: 4,
+                          textAlign: 'center',
+                          border: '2px dashed',
+                          borderColor: 'divider',
+                          borderRadius: 2,
+                        }}
+                      >
+                        <LinkIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
+                        <Typography variant="body1" color="text.secondary">
+                          No relationships defined yet
+                        </Typography>
+                        {flattenClasses(classes).length >= 2 && (
+                          <Button
+                            variant="outlined"
+                            startIcon={<Add />}
+                            onClick={handleAddRelationship}
+                            sx={{ mt: 2 }}
+                          >
+                            Add First Relationship
+                          </Button>
+                        )}
+                      </Box>
+                    ) : (
+                      <Stack spacing={2}>
+                        {relationships.map((rel) => {
+                          const sourceClass = findClassById(rel.source_class_id);
+                          const targetClass = findClassById(rel.target_class_id);
+
+                          return (
+                            <Card key={rel.id} variant="outlined">
+                              <CardContent>
+                                <Stack spacing={1}>
+                                  <Typography variant="subtitle1" fontWeight="medium">
+                                    {rel.name}
+                                  </Typography>
+                                  <Stack direction="row" spacing={1} alignItems="center">
+                                    <Chip
+                                      label={sourceClass?.name || 'Unknown'}
+                                      size="small"
+                                      color="primary"
+                                      variant="outlined"
+                                    />
+                                    <Typography variant="body2" color="text.secondary">
+                                      →
+                                    </Typography>
+                                    <Chip
+                                      label={targetClass?.name || 'Unknown'}
+                                      size="small"
+                                      color="secondary"
+                                      variant="outlined"
+                                    />
+                                  </Stack>
+                                  <Chip
+                                    label={rel.cardinality}
+                                    size="small"
+                                    variant="filled"
+                                  />
                                 </Stack>
-                                <Chip
+                              </CardContent>
+                              <CardActions>
+                                <Button
                                   size="small"
-                                  label={rel.cardinality}
-                                  variant="outlined"
-                                  sx={{ width: 'fit-content' }}
-                                />
-                              </Stack>
-                            </CardContent>
-                            <CardActions>
-                              <IconButton
-                                size="small"
-                                onClick={() => handleDeleteRelationship(rel.id)}
-                                sx={{ color: 'error.main' }}
-                              >
-                                <Delete fontSize="small" />
-                              </IconButton>
-                            </CardActions>
-                          </Card>
-                        );
-                      })}
-                    </Stack>
-                  )}
+                                  startIcon={<Delete />}
+                                  onClick={() => handleDeleteRelationship(rel.id)}
+                                  color="error"
+                                >
+                                  Delete
+                                </Button>
+                              </CardActions>
+                            </Card>
+                          );
+                        })}
+                      </Stack>
+                    )}
+                  </Box>
                 </Stack>
               </Paper>
             </Grid>
@@ -514,29 +628,23 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
 
           {/* Action Buttons */}
           <Paper elevation={2} sx={{ p: 3 }}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Stack direction="row" spacing={2}>
-                <Chip icon={<DataObject />} label={`${allFlatClasses.length} classes`} />
-                <Chip icon={<LinkIcon />} label={`${relationships.length} relationships`} />
-              </Stack>
-              <Stack direction="row" spacing={2}>
-                <Button
-                  variant="outlined"
-                  startIcon={<Cancel />}
-                  onClick={onCancel}
-                  disabled={saving}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="contained"
-                  startIcon={<Save />}
-                  onClick={handleSaveSchema}
-                  disabled={saving || !schemaName || classes.length === 0}
-                >
-                  {saving ? 'Creating...' : 'Create Schema'}
-                </Button>
-              </Stack>
+            <Stack direction="row" spacing={2} justifyContent="flex-end">
+              <Button
+                variant="outlined"
+                startIcon={<Cancel />}
+                onClick={onCancel}
+                disabled={saving}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={<Save />}
+                onClick={handleSaveSchema}
+                disabled={saving || !schemaName.trim() || flattenClasses(classes).length === 0}
+              >
+                {saving ? 'Creating...' : 'Create Schema'}
+              </Button>
             </Stack>
           </Paper>
         </Stack>
@@ -546,7 +654,7 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
       <Dialog open={classDialogOpen} onClose={() => setClassDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>{editingClass ? 'Edit Class' : 'Add New Class'}</DialogTitle>
         <DialogContent>
-          <Stack spacing={3} sx={{ mt: 2 }}>
+          <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField
               fullWidth
               label="Class Name"
@@ -555,79 +663,103 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
               required
             />
 
-            {!editingClass && (
-              <FormControl fullWidth>
-                <InputLabel>Parent Class (Optional)</InputLabel>
-                <Select
-                  value={parentClassId}
-                  onChange={(e) => setParentClassId(e.target.value)}
-                  label="Parent Class (Optional)"
-                >
-                  <MenuItem value="">None (Root Level)</MenuItem>
-                  {allFlatClasses.map((cls) => (
+            <FormControl fullWidth>
+              <InputLabel>Parent Class (Optional)</InputLabel>
+              <Select
+                value={parentClassId}
+                onChange={(e) => setParentClassId(e.target.value)}
+                label="Parent Class (Optional)"
+              >
+                <MenuItem value="">
+                  <em>None (Root Level)</em>
+                </MenuItem>
+                {flattenClasses(classes)
+                  .filter((c) => !editingClass || c.id !== editingClass.id)
+                  .map((cls) => (
                     <MenuItem key={cls.id} value={cls.id}>
-                      {cls.name} (Level {cls.level})
+                      {cls.name}
                     </MenuItem>
                   ))}
-                </Select>
-              </FormControl>
-            )}
+              </Select>
+            </FormControl>
 
             <Divider />
 
             <Typography variant="subtitle2">Attributes</Typography>
+
             {newAttributes.map((attr, index) => (
               <Stack key={index} direction="row" spacing={1}>
                 <TextField
                   fullWidth
-                  size="small"
                   label={`Attribute ${index + 1}`}
                   value={attr}
-                  onChange={(e) => handleAttributeChange(index, e.target.value)}
+                  onChange={(e) => {
+                    const updated = [...newAttributes];
+                    updated[index] = e.target.value;
+                    setNewAttributes(updated);
+                  }}
                 />
                 <IconButton
-                  size="small"
-                  onClick={() => handleRemoveAttribute(index)}
+                  onClick={() => {
+                    setNewAttributes(newAttributes.filter((_, i) => i !== index));
+                  }}
                   disabled={newAttributes.length === 1}
                 >
                   <Delete />
                 </IconButton>
               </Stack>
             ))}
-            <Button size="small" startIcon={<Add />} onClick={handleAddAttribute}>
+
+            <Button
+              variant="outlined"
+              startIcon={<Add />}
+              onClick={() => setNewAttributes([...newAttributes, ''])}
+            >
               Add Attribute
             </Button>
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setClassDialogOpen(false)}>Cancel</Button>
-          <Button onClick={handleSaveClass} variant="contained" disabled={!newClassName.trim()}>
-            {editingClass ? 'Update' : 'Add'}
+          <Button onClick={handleSaveClass} variant="contained">
+            Save
           </Button>
         </DialogActions>
       </Dialog>
 
       {/* Relationship Dialog */}
-      <Dialog open={relationshipDialogOpen} onClose={() => setRelationshipDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Add Relationship</DialogTitle>
+      <Dialog
+        open={relationshipDialogOpen}
+        onClose={() => setRelationshipDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Add New Relationship</DialogTitle>
         <DialogContent>
-          <Stack spacing={3} sx={{ mt: 2 }}>
+          <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField
               fullWidth
               label="Relationship Name"
               value={relationshipForm.name}
-              onChange={(e) => setRelationshipForm({ ...relationshipForm, name: e.target.value })}
-              placeholder="e.g., has, contains, belongs to"
+              onChange={(e) =>
+                setRelationshipForm({ ...relationshipForm, name: e.target.value })
+              }
+              required
             />
 
             <FormControl fullWidth required>
               <InputLabel>Source Class</InputLabel>
               <Select
                 value={relationshipForm.source_class_id}
-                onChange={(e) => setRelationshipForm({ ...relationshipForm, source_class_id: e.target.value })}
+                onChange={(e) =>
+                  setRelationshipForm({
+                    ...relationshipForm,
+                    source_class_id: e.target.value,
+                  })
+                }
                 label="Source Class"
               >
-                {allFlatClasses.map((cls) => (
+                {flattenClasses(classes).map((cls) => (
                   <MenuItem key={cls.id} value={cls.id}>
                     {cls.name}
                   </MenuItem>
@@ -639,10 +771,15 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
               <InputLabel>Target Class</InputLabel>
               <Select
                 value={relationshipForm.target_class_id}
-                onChange={(e) => setRelationshipForm({ ...relationshipForm, target_class_id: e.target.value })}
+                onChange={(e) =>
+                  setRelationshipForm({
+                    ...relationshipForm,
+                    target_class_id: e.target.value,
+                  })
+                }
                 label="Target Class"
               >
-                {allFlatClasses.map((cls) => (
+                {flattenClasses(classes).map((cls) => (
                   <MenuItem key={cls.id} value={cls.id}>
                     {cls.name}
                   </MenuItem>
@@ -650,29 +787,30 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
               </Select>
             </FormControl>
 
-            <FormControl fullWidth>
+            <FormControl fullWidth required>
               <InputLabel>Cardinality</InputLabel>
               <Select
                 value={relationshipForm.cardinality}
-                onChange={(e) => setRelationshipForm({ ...relationshipForm, cardinality: e.target.value as Cardinality })}
+                onChange={(e) =>
+                  setRelationshipForm({
+                    ...relationshipForm,
+                    cardinality: e.target.value as Cardinality,
+                  })
+                }
                 label="Cardinality"
               >
-                <MenuItem value={Cardinality.ONE_TO_ONE}>One to One (1:1)</MenuItem>
-                <MenuItem value={Cardinality.ONE_TO_MANY}>One to Many (1:N)</MenuItem>
-                <MenuItem value={Cardinality.MANY_TO_ONE}>Many to One (N:1)</MenuItem>
-                <MenuItem value={Cardinality.MANY_TO_MANY}>Many to Many (N:M)</MenuItem>
+                <MenuItem value={Cardinality.ONE_TO_ONE}>1:1 (One to One)</MenuItem>
+                <MenuItem value={Cardinality.ONE_TO_MANY}>1:N (One to Many)</MenuItem>
+                <MenuItem value={Cardinality.MANY_TO_ONE}>N:1 (Many to One)</MenuItem>
+                <MenuItem value={Cardinality.MANY_TO_MANY}>N:M (Many to Many)</MenuItem>
               </Select>
             </FormControl>
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setRelationshipDialogOpen(false)}>Cancel</Button>
-          <Button
-            onClick={handleSaveRelationship}
-            variant="contained"
-            disabled={!relationshipForm.source_class_id || !relationshipForm.target_class_id}
-          >
-            Add
+          <Button onClick={handleSaveRelationship} variant="contained">
+            Add Relationship
           </Button>
         </DialogActions>
       </Dialog>
