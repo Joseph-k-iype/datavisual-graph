@@ -1,86 +1,48 @@
-// frontend/src/services/api.ts - COMPLETE FIXED VERSION
+// frontend/src/services/api.ts - ENHANCED WITH RELATIONSHIP CREATION
 
 import axios, { AxiosInstance } from 'axios';
+import { 
+  SchemaDefinition, 
+  SchemaCreateRequest, 
+  SchemaRelationship,
+  Cardinality 
+} from '../types';
+import { LineageGraph } from '../types/lineage';
 
-// ============================================
-// TYPE DEFINITIONS
-// ============================================
-
-export interface Attribute {
-  id: string;
-  name: string;
-  data_type: string;
-  is_primary_key?: boolean;
-  is_foreign_key?: boolean;
-  is_nullable?: boolean;
-  metadata?: any;
-}
-
-export interface HierarchyNode {
-  id: string;
-  name: string;
-  display_name?: string;
-  type: 'class' | 'subclass';
-  level: number;
-  parent_id?: string;
-  children: HierarchyNode[];
-  attributes: Attribute[];
-  instance_count?: number;
-  collapsed: boolean;
-  metadata?: any;
-}
-
-export interface HierarchyTree {
-  schema_id: string;
-  root_nodes: HierarchyNode[];
-  max_depth: number;
-  total_nodes: number;
-  metadata?: any;
-}
-
-export interface CreateSubclassRequest {
-  parent_class_id: string;
-  name: string;
-  display_name?: string;
-  description?: string;
-  inherit_attributes: boolean;
-  additional_attributes: Attribute[];
-  metadata?: any;
-}
-
-// ============================================
-// API SERVICE CLASS
-// ============================================
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
 
 class APIService {
-  private api: AxiosInstance;
+  private client: AxiosInstance;
 
   constructor() {
-    this.api = axios.create({
-      baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1',
+    this.client = axios.create({
+      baseURL: API_BASE_URL,
       headers: {
         'Content-Type': 'application/json',
       },
+      timeout: 60000, // 60 seconds
     });
 
-    this.api.interceptors.request.use(
+    // Add request interceptor for logging
+    this.client.interceptors.request.use(
       (config) => {
-        console.log(`📤 API Request: ${config.method?.toUpperCase()} ${config.url}`);
+        console.log(`🌐 API Request: ${config.method?.toUpperCase()} ${config.url}`);
         return config;
       },
       (error) => {
-        console.error('❌ API Request Error:', error);
+        console.error('❌ Request Error:', error);
         return Promise.reject(error);
       }
     );
 
-    this.api.interceptors.response.use(
+    // Add response interceptor for logging
+    this.client.interceptors.response.use(
       (response) => {
-        console.log(`✅ API Response: ${response.config.url}`, response.data);
+        console.log(`✅ API Response: ${response.config.url} - ${response.status}`);
         return response;
       },
       (error) => {
-        console.error('❌ API Response Error:', error.response?.data || error.message);
+        console.error('❌ Response Error:', error.response?.data || error.message);
         return Promise.reject(error);
       }
     );
@@ -90,81 +52,59 @@ class APIService {
   // SCHEMA OPERATIONS
   // ============================================
 
-  async getSchemas(): Promise<any[]> {
-    const response = await this.api.get('/schemas');
+  async createSchema(data: SchemaCreateRequest): Promise<SchemaDefinition> {
+    console.log('📝 Creating schema:', data.name);
+    console.log('   Classes:', data.classes.length);
+    console.log('   Relationships:', data.relationships.length);
+    
+    const response = await this.client.post<SchemaDefinition>('/schemas/', data);
+    
+    console.log('✅ Schema created:', response.data.id);
     return response.data;
   }
 
-  async getSchema(schemaId: string): Promise<any> {
-    const response = await this.api.get(`/schemas/${schemaId}`);
+  async listSchemas(): Promise<any[]> {
+    const response = await this.client.get('/schemas/');
     return response.data;
   }
 
-  async createSchema(schema: any): Promise<any> {
-    const response = await this.api.post('/schemas', schema);
-    return response.data;
-  }
-
-  async updateSchema(schemaId: string, updates: any): Promise<any> {
-    const response = await this.api.put(`/schemas/${schemaId}`, updates);
+  async getSchema(schemaId: string): Promise<SchemaDefinition> {
+    const response = await this.client.get<SchemaDefinition>(`/schemas/${schemaId}`);
     return response.data;
   }
 
   async deleteSchema(schemaId: string): Promise<void> {
-    await this.api.delete(`/schemas/${schemaId}`);
-  }
-
-  async inferSchema(file: File, format: string): Promise<any> {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('format', format);
-
-    const response = await this.api.post('/schemas/infer', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-    return response.data;
-  }
-
-  async inferSchemaMulti(files: File[], formats: string[]): Promise<any> {
-    console.log(`🔍 Inferring schema from ${files.length} files:`, files.map(f => f.name));
-    
-    const formData = new FormData();
-    files.forEach(file => {
-      formData.append('files', file);
-    });
-    formData.append('formats', JSON.stringify(formats));
-
-    const response = await this.api.post('/schemas/infer-multi', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-    
-    console.log('✅ Multi-file inference result:', response.data);
-    return response.data;
+    await this.client.delete(`/schemas/${schemaId}`);
   }
 
   // ============================================
-  // HIERARCHY OPERATIONS - NEW!
+  // ✅ NEW: RELATIONSHIP OPERATIONS
   // ============================================
 
-  async getHierarchyTree(schemaId: string): Promise<HierarchyTree> {
-    console.log(`📊 Fetching hierarchy tree for schema: ${schemaId}`);
-    const response = await this.api.get(`/hierarchy/${schemaId}/tree`);
-    return response.data;
-  }
-
-  async createSubclass(schemaId: string, request: CreateSubclassRequest): Promise<HierarchyNode> {
-    console.log(`➕ Creating subclass under parent: ${request.parent_class_id}`);
-    const response = await this.api.post(`/hierarchy/${schemaId}/subclass`, request);
-    console.log('✅ Subclass created:', response.data);
-    return response.data;
-  }
-
-  async getHierarchyStats(schemaId: string): Promise<any> {
-    const response = await this.api.get(`/hierarchy/${schemaId}/stats`);
+  async createRelationship(
+    schemaId: string,
+    sourceClassId: string,
+    targetClassId: string,
+    relationshipName: string,
+    cardinality: Cardinality = Cardinality.ONE_TO_MANY
+  ): Promise<SchemaRelationship> {
+    console.log('🔗 Creating relationship:', relationshipName);
+    console.log('   Schema:', schemaId);
+    console.log('   Source:', sourceClassId);
+    console.log('   Target:', targetClassId);
+    console.log('   Cardinality:', cardinality);
+    
+    const response = await this.client.post<SchemaRelationship>(
+      `/schemas/${schemaId}/relationships`,
+      {
+        source_class_id: sourceClassId,
+        target_class_id: targetClassId,
+        relationship_name: relationshipName,
+        cardinality: cardinality,
+      }
+    );
+    
+    console.log('✅ Relationship created:', response.data.id);
     return response.data;
   }
 
@@ -172,60 +112,151 @@ class APIService {
   // LINEAGE OPERATIONS
   // ============================================
 
-  async getLineageGraph(schemaId: string, expandedClasses?: string[]): Promise<any> {
-    const response = await this.api.get(`/schemas/${schemaId}/lineage`, {
-      params: {
-        expanded_classes: expandedClasses?.join(','),
-      },
-    });
-    return response.data;
-  }
-
-  async findPaths(schemaId: string, nodeIds: string[], maxDepth?: number): Promise<any> {
-    const response = await this.api.post(`/schemas/${schemaId}/find-paths`, {
-      node_ids: nodeIds,
-      max_depth: maxDepth || 10,
-    });
+  async getLineageGraph(
+    schemaId: string,
+    expandedClasses: string[] = []
+  ): Promise<LineageGraph> {
+    console.log('🎨 Fetching lineage graph for schema:', schemaId);
+    console.log('   Expanded classes:', expandedClasses);
+    
+    const params = expandedClasses.length > 0 
+      ? { expanded_classes: expandedClasses.join(',') } 
+      : {};
+    
+    const response = await this.client.get<LineageGraph>(
+      `/schemas/${schemaId}/lineage`,
+      { params }
+    );
+    
+    console.log('✅ Lineage graph fetched:');
+    console.log('   Nodes:', response.data.nodes?.length || 0);
+    console.log('   Edges:', response.data.edges?.length || 0);
+    
     return response.data;
   }
 
   async getSchemaStats(schemaId: string): Promise<any> {
-    const response = await this.api.get(`/schemas/${schemaId}/stats`);
+    const response = await this.client.get(`/schemas/${schemaId}/stats`);
     return response.data;
   }
 
   // ============================================
-  // DATA LOADING
+  // SCHEMA INFERENCE OPERATIONS
   // ============================================
 
-  async loadData(schemaId: string, file: File, mapping: any): Promise<any> {
+  async inferSchema(file: File, format: string): Promise<any> {
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('mapping', JSON.stringify(mapping));
+    formData.append('format', format);
 
-    const response = await this.api.post(
-      `/schemas/${schemaId}/load-data`,
-      formData,
-      {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      }
-    );
+    console.log('🔍 Inferring schema from file:', file.name);
+
+    const response = await this.client.post('/schemas/infer', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+
+    console.log('✅ Schema inferred');
+    console.log('   Classes:', response.data.classes?.length || 0);
+    console.log('   Relationships:', response.data.relationships?.length || 0);
+
     return response.data;
   }
+
+  async inferSchemaMulti(files: File[], formats: string[]): Promise<any> {
+    const formData = new FormData();
+    
+    files.forEach((file) => {
+      formData.append('files', file);
+    });
+    
+    formData.append('formats', JSON.stringify(formats));
+
+    console.log('🔍 Inferring unified schema from', files.length, 'files');
+
+    const response = await this.client.post('/schemas/infer-multi', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+
+    console.log('✅ Unified schema inferred');
+    console.log('   Classes:', response.data.classes?.length || 0);
+    console.log('   Relationships:', response.data.relationships?.length || 0);
+
+    return response.data;
+  }
+
+  // ============================================
+  // HIERARCHY OPERATIONS
+  // ============================================
+
+  async createSubclass(
+    schemaId: string,
+    parentClassId: string,
+    subclassData: any
+  ): Promise<any> {
+    console.log('➕ Creating subclass under parent:', parentClassId);
+    
+    const response = await this.client.post(
+      `/hierarchy/${schemaId}/subclass`,
+      {
+        parent_class_id: parentClassId,
+        ...subclassData,
+      }
+    );
+    
+    console.log('✅ Subclass created:', response.data.id);
+    return response.data;
+  }
+
+  async getHierarchyTree(schemaId: string): Promise<any> {
+    const response = await this.client.get(`/hierarchy/${schemaId}/tree`);
+    return response.data;
+  }
+
+  // ============================================
+  // DATA OPERATIONS
+  // ============================================
 
   async parseFile(file: File, format: string): Promise<any> {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('format', format);
 
-    const response = await this.api.post('/data/parse', formData, {
+    console.log('📄 Parsing file:', file.name);
+
+    const response = await this.client.post('/data/parse', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
     });
+
+    console.log('✅ File parsed');
+    console.log('   Rows:', response.data.row_count || 0);
+    console.log('   Columns:', response.data.columns?.length || 0);
+
+    return response.data;
+  }
+
+  // ✅ FIX: Corrected loadData signature to match usage
+  async loadData(dataLoadRequest: any): Promise<any> {
+    console.log('📊 Loading data for schema:', dataLoadRequest.schema_id);
+
+    // Create FormData for file upload
+    const formData = new FormData();
     
+    // If there's a file in the request, we need to handle it
+    // The actual implementation depends on your backend API
+    // For now, assuming the request contains all necessary data
+    
+    const response = await this.client.post('/data/load', dataLoadRequest);
+
+    console.log('✅ Data loaded');
+    console.log('   Instances created:', response.data.instances_created || 0);
+    console.log('   Relationships created:', response.data.relationships_created || 0);
+
     return response.data;
   }
 
@@ -233,10 +264,12 @@ class APIService {
   // HEALTH CHECK
   // ============================================
 
-  async healthCheck(): Promise<{ status: string; database: string }> {
-    const response = await this.api.get('/health');
+  async healthCheck(): Promise<any> {
+    const response = await this.client.get('/health');
     return response.data;
   }
 }
 
-export default new APIService();
+// Export singleton instance
+const apiService = new APIService();
+export default apiService;

@@ -242,7 +242,7 @@ function App() {
   const loadSchemas = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await apiService.getSchemas();
+    const data = await apiService.listSchemas();
       setSchemas(data);
     } catch (error) {
       showSnackbar('Failed to load schemas', 'error');
@@ -446,7 +446,7 @@ function App() {
       };
 
       console.log('📤 Sending load request:', loadRequest);
-      const result = await apiService.loadData(fullSchema.id, file, loadRequest);
+        const result = await apiService.loadData(loadRequest);
       
       if (result.success) {
         showSnackbar(

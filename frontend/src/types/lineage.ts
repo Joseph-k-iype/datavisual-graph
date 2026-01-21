@@ -1,120 +1,97 @@
-// frontend/src/types/lineage.ts - FIXED TYPES
-
-/**
- * Enhanced Types for Enterprise Data Lineage
- * Supports attribute-level lineage, hierarchies, and tracing
- */
+// frontend/src/types/lineage.ts - FIXED
 
 // ============================================
-// ATTRIBUTE TYPES
+// CORE LINEAGE TYPES
 // ============================================
-
-export type DataType = 'string' | 'number' | 'boolean' | 'date' | 'json' | 'binary';
-export type SensitivityLevel = 'public' | 'internal' | 'confidential' | 'restricted';
 
 export interface Attribute {
   id: string;
   name: string;
-  display_name?: string;
-  data_type: DataType;
-  is_primary_key: boolean;
-  is_foreign_key: boolean;
-  is_nullable: boolean;
+  data_type: string;
+  is_primary_key?: boolean;
+  is_foreign_key?: boolean;
+  is_nullable?: boolean;
+  default_value?: any;
   description?: string;
-  business_name?: string;
-  business_description?: string;
-  sensitivity_level?: SensitivityLevel;
-  lineage_enabled: boolean;
-  position: number;
-  sample_values?: any[];
   metadata?: Record<string, any>;
 }
 
-export interface ValidationRule {
-  type: 'regex' | 'range' | 'enum' | 'custom';
-  value: any;
-  error_message?: string;
-}
+export type DataType = 
+  | 'string' 
+  | 'integer' 
+  | 'float' 
+  | 'boolean' 
+  | 'date' 
+  | 'datetime' 
+  | 'json' 
+  | 'array';
 
 // ============================================
-// LINEAGE GRAPH TYPES
+// LINEAGE GRAPH NODE
 // ============================================
 
 export interface LineageGraphNode {
   id: string;
-  type: 'class' | 'attribute' | 'instance' | 'attribute_value';
+  type: 'class' | 'schema_class' | 'instance' | 'attribute' | 'attribute_value';
   name: string;
   display_name?: string;
-  
-  // Position
-  position: { x: number; y: number };
-  
-  // Hierarchy
+  schema_id?: string;
+  class_id?: string;
   parent_id?: string;
   level: number;
-  
-  // Styling
-  color?: string;
-  icon?: string;
-  size?: 'small' | 'medium' | 'large';
-  
-  // State
-  collapsed: boolean;
-  selected: boolean;
-  highlighted: boolean;
-  
-  // Data
-  data: Record<string, any>;
   attributes?: Attribute[];
   instance_count?: number;
-  
-  // Lineage
-  has_upstream: boolean;
-  has_downstream: boolean;
-  lineage_depth?: number;
-  
+  collapsed?: boolean;
+  highlighted?: boolean;
+  selected?: boolean;
+  has_upstream?: boolean;
+  has_downstream?: boolean;
+  position?: { x: number; y: number };
+  data?: Record<string, any>;
   metadata?: Record<string, any>;
 }
+
+// ============================================
+// LINEAGE GRAPH EDGE
+// ============================================
 
 export interface LineageGraphEdge {
   id: string;
   source: string;
   target: string;
-  type: 'schema' | 'data' | 'attribute_flow' | 'hierarchy';
-  
-  // Labels
+  type?: 'schema_relationship' | 'data_relationship' | 'hierarchy' | 'attribute_flow';
   label?: string;
-  source_label?: string;
-  target_label?: string;
-  
-  // Styling
-  color?: string;
-  width?: number;
-  style?: 'solid' | 'dashed' | 'dotted';
-  animated?: boolean;
-  
-  // State
-  highlighted: boolean;
-  selected: boolean;
-  
-  // Metadata
   cardinality?: string;
-  transformation_applied?: string;
+  highlighted?: boolean;
   metadata?: Record<string, any>;
 }
 
-// This matches the backend response exactly
+// ============================================
+// LINEAGE GRAPH METADATA
+// ============================================
+
+export interface LineageGraphMetadata {
+  total_nodes: number;
+  total_edges: number;
+  max_depth?: number;
+  generated_at?: string;
+  // ✅ FIX: Added optional properties for extended metadata
+  expanded_classes?: string[];
+  schema_relationships?: number;
+  hierarchy_shown_in_tree?: boolean;
+  [key: string]: any; // Allow additional properties
+}
+
+// ============================================
+// LINEAGE GRAPH
+// ============================================
+
 export interface LineageGraph {
   schema_id: string;
   schema_name: string;
   nodes: LineageGraphNode[];
   edges: LineageGraphEdge[];
-  metadata?: {
-    total_nodes: number;
-    total_edges: number;
-    max_depth?: number;
-    generated_at?: string;
-  };
+  metadata: LineageGraphMetadata;
 }
 
 // Alias for compatibility
