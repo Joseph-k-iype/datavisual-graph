@@ -1,31 +1,56 @@
-// frontend/src/services/api.ts - UPDATED with multi-file support
+// frontend/src/services/api.ts - COMPLETE FIXED VERSION
 
 import axios, { AxiosInstance } from 'axios';
-import {
-  SchemaDefinition,
-  LineageGraphResponse,
-  AttributeTraceRequest,
-  AttributeTraceResponse,
-  DataLoadRequest,
-  DataLoadResponse,
-  SchemaStats,
-  LineagePathResponse,
-  SchemaCreateRequest,
-} from '../types';
 
-interface SchemaInferenceResponse {
-  suggested_name: string;
-  description: string;
-  classes: any[];
-  relationships: any[];
-  confidence_score?: number;
-  warnings?: string[];
-  metadata?: {
-    source_files?: string[];
-    total_rows?: number;
-    inference_timestamp?: string;
-  };
+// ============================================
+// TYPE DEFINITIONS
+// ============================================
+
+export interface Attribute {
+  id: string;
+  name: string;
+  data_type: string;
+  is_primary_key?: boolean;
+  is_foreign_key?: boolean;
+  is_nullable?: boolean;
+  metadata?: any;
 }
+
+export interface HierarchyNode {
+  id: string;
+  name: string;
+  display_name?: string;
+  type: 'class' | 'subclass';
+  level: number;
+  parent_id?: string;
+  children: HierarchyNode[];
+  attributes: Attribute[];
+  instance_count?: number;
+  collapsed: boolean;
+  metadata?: any;
+}
+
+export interface HierarchyTree {
+  schema_id: string;
+  root_nodes: HierarchyNode[];
+  max_depth: number;
+  total_nodes: number;
+  metadata?: any;
+}
+
+export interface CreateSubclassRequest {
+  parent_class_id: string;
+  name: string;
+  display_name?: string;
+  description?: string;
+  inherit_attributes: boolean;
+  additional_attributes: Attribute[];
+  metadata?: any;
+}
+
+// ============================================
+// API SERVICE CLASS
+// ============================================
 
 class APIService {
   private api: AxiosInstance;
@@ -65,22 +90,22 @@ class APIService {
   // SCHEMA OPERATIONS
   // ============================================
 
-  async getSchemas(): Promise<SchemaDefinition[]> {
+  async getSchemas(): Promise<any[]> {
     const response = await this.api.get('/schemas');
     return response.data;
   }
 
-  async getSchema(schemaId: string): Promise<SchemaDefinition> {
+  async getSchema(schemaId: string): Promise<any> {
     const response = await this.api.get(`/schemas/${schemaId}`);
     return response.data;
   }
 
-  async createSchema(schema: SchemaCreateRequest): Promise<SchemaDefinition> {
+  async createSchema(schema: any): Promise<any> {
     const response = await this.api.post('/schemas', schema);
     return response.data;
   }
 
-  async updateSchema(schemaId: string, updates: Partial<SchemaDefinition>): Promise<SchemaDefinition> {
+  async updateSchema(schemaId: string, updates: any): Promise<any> {
     const response = await this.api.put(`/schemas/${schemaId}`, updates);
     return response.data;
   }
@@ -89,10 +114,7 @@ class APIService {
     await this.api.delete(`/schemas/${schemaId}`);
   }
 
-  /**
-   * Infer schema from single file
-   */
-  async inferSchema(file: File, format: string): Promise<SchemaInferenceResponse> {
+  async inferSchema(file: File, format: string): Promise<any> {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('format', format);
@@ -105,20 +127,13 @@ class APIService {
     return response.data;
   }
 
-  /**
-   * Infer unified schema from multiple files using FalkorDB
-   */
-  async inferSchemaMulti(files: File[], formats: string[]): Promise<SchemaInferenceResponse> {
+  async inferSchemaMulti(files: File[], formats: string[]): Promise<any> {
     console.log(`🔍 Inferring schema from ${files.length} files:`, files.map(f => f.name));
     
     const formData = new FormData();
-    
-    // Append all files
     files.forEach(file => {
       formData.append('files', file);
     });
-    
-    // Append formats as JSON string
     formData.append('formats', JSON.stringify(formats));
 
     const response = await this.api.post('/schemas/infer-multi', formData, {
@@ -132,13 +147,32 @@ class APIService {
   }
 
   // ============================================
+  // HIERARCHY OPERATIONS - NEW!
+  // ============================================
+
+  async getHierarchyTree(schemaId: string): Promise<HierarchyTree> {
+    console.log(`📊 Fetching hierarchy tree for schema: ${schemaId}`);
+    const response = await this.api.get(`/hierarchy/${schemaId}/tree`);
+    return response.data;
+  }
+
+  async createSubclass(schemaId: string, request: CreateSubclassRequest): Promise<HierarchyNode> {
+    console.log(`➕ Creating subclass under parent: ${request.parent_class_id}`);
+    const response = await this.api.post(`/hierarchy/${schemaId}/subclass`, request);
+    console.log('✅ Subclass created:', response.data);
+    return response.data;
+  }
+
+  async getHierarchyStats(schemaId: string): Promise<any> {
+    const response = await this.api.get(`/hierarchy/${schemaId}/stats`);
+    return response.data;
+  }
+
+  // ============================================
   // LINEAGE OPERATIONS
   // ============================================
 
-  async getLineageGraph(
-    schemaId: string,
-    expandedClasses?: string[]
-  ): Promise<LineageGraphResponse> {
+  async getLineageGraph(schemaId: string, expandedClasses?: string[]): Promise<any> {
     const response = await this.api.get(`/schemas/${schemaId}/lineage`, {
       params: {
         expanded_classes: expandedClasses?.join(','),
@@ -147,11 +181,7 @@ class APIService {
     return response.data;
   }
 
-  async findPaths(
-    schemaId: string,
-    nodeIds: string[],
-    maxDepth?: number
-  ): Promise<LineagePathResponse> {
+  async findPaths(schemaId: string, nodeIds: string[], maxDepth?: number): Promise<any> {
     const response = await this.api.post(`/schemas/${schemaId}/find-paths`, {
       node_ids: nodeIds,
       max_depth: maxDepth || 10,
@@ -159,24 +189,8 @@ class APIService {
     return response.data;
   }
 
-  async getSchemaStats(schemaId: string): Promise<SchemaStats> {
+  async getSchemaStats(schemaId: string): Promise<any> {
     const response = await this.api.get(`/schemas/${schemaId}/stats`);
-    return response.data;
-  }
-
-  // ============================================
-  // ATTRIBUTE LINEAGE
-  // ============================================
-
-  async traceAttributeLineage(
-    request: AttributeTraceRequest
-  ): Promise<AttributeTraceResponse> {
-    const response = await this.api.post('/lineage/attribute/trace', request);
-    return response.data;
-  }
-
-  async getAttributeFlows(schemaId: string): Promise<any> {
-    const response = await this.api.get(`/schemas/${schemaId}/attribute-flows`);
     return response.data;
   }
 
@@ -184,11 +198,7 @@ class APIService {
   // DATA LOADING
   // ============================================
 
-  async loadData(
-    schemaId: string,
-    file: File,
-    mapping: DataLoadRequest
-  ): Promise<DataLoadResponse> {
+  async loadData(schemaId: string, file: File, mapping: any): Promise<any> {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('mapping', JSON.stringify(mapping));
@@ -205,12 +215,7 @@ class APIService {
     return response.data;
   }
 
-  async parseFile(file: File, format: string): Promise<{
-    data: any[];
-    columns: string[];
-    preview: any[];
-    data_types: Record<string, string>;
-  }> {
+  async parseFile(file: File, format: string): Promise<any> {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('format', format);

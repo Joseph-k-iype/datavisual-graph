@@ -1,4 +1,4 @@
-// frontend/src/App.tsx - FIXED column matching with better logic
+// frontend/src/App.tsx - COMPLETE FIXED VERSION
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   Box,
@@ -31,12 +31,12 @@ import { useLineageGraph } from './hooks/useLineageGraph';
 import apiService from './services/api';
 import {
   SchemaDefinition,
+  SchemaClass,
   DataLoadRequest,
   ClassDataMapping,
   ColumnMapping,
-  HierarchyTree,
-  HierarchyNode,
 } from './types';
+import { HierarchyTree, HierarchyNode, LineageGraphEdge } from './types/lineage';
 
 type AppView = 'landing' | 'schema-builder' | 'visualization';
 
@@ -54,7 +54,7 @@ interface InferredSchema {
   sourceFile: string;
 }
 
-// FIXED: Helper function for fuzzy column matching
+// Helper function for fuzzy column matching
 function normalizeColumnName(name: string): string {
   return name.toLowerCase().trim().replace(/[_\s-]+/g, '');
 }
@@ -114,7 +114,7 @@ function App() {
     },
   });
 
-  // FIXED: Build hierarchy tree from graph nodes with correct types
+  // Build hierarchy tree from graph nodes
   const hierarchyTree = useMemo<HierarchyTree | null>(() => {
     if (!graph || !graph.nodes || graph.nodes.length === 0) {
       return null;
@@ -125,14 +125,14 @@ function App() {
       const parentMap = new Map<string, string>();
       const childrenMap = new Map<string, string[]>();
 
-      // FIXED: Safe access to edge properties
-      (graph.edges || []).forEach(edge => {
+      // Safe access to edge properties with proper typing
+      (graph.edges || []).forEach((edge: LineageGraphEdge) => {
         // Look for hierarchy relationship types
         const hierarchyTypes = ['inherits', 'is_a', 'subclass_of', 'extends', 'hierarchy'];
         const edgeType = (edge.type || '').toLowerCase();
         const edgeLabel = (edge.label || '').toLowerCase();
         
-        if (hierarchyTypes.some(type => edgeType.includes(type) || edgeLabel.includes(type))) {
+        if (hierarchyTypes.some((type: string) => edgeType.includes(type) || edgeLabel.includes(type))) {
           parentMap.set(edge.target, edge.source);
           if (!childrenMap.has(edge.source)) {
             childrenMap.set(edge.source, []);
@@ -142,26 +142,26 @@ function App() {
       });
 
       const rootNodeIds = graph.nodes
-        .filter(node => node.type === 'class' && !parentMap.has(node.id))
-        .map(node => node.id);
+        .filter((node) => node.type === 'class' && !parentMap.has(node.id))
+        .map((node) => node.id);
 
       console.log('🌲 Building hierarchy tree:', {
         totalNodes: graph.nodes.length,
         rootNodes: rootNodeIds.length,
-        classNodes: graph.nodes.filter(n => n.type === 'class').length,
+        classNodes: graph.nodes.filter((n) => n.type === 'class').length,
       });
 
       // Build hierarchy recursively
       const buildHierarchyNode = (nodeId: string, level: number): HierarchyNode => {
-        const graphNode = graph.nodes.find(n => n.id === nodeId);
+        const graphNode = graph.nodes.find((n) => n.id === nodeId);
         if (!graphNode) {
           throw new Error(`Node ${nodeId} not found`);
         }
 
         const children = (childrenMap.get(nodeId) || [])
-          .map(childId => buildHierarchyNode(childId, level + 1));
+          .map((childId: string) => buildHierarchyNode(childId, level + 1));
 
-        // FIXED: Safe attribute extraction
+        // Safe attribute extraction
         let attributes = graphNode.attributes || [];
         
         if (typeof attributes === 'string') {
@@ -176,12 +176,11 @@ function App() {
           attributes = [];
         }
 
-        // FIXED: Use 'subclass' instead of 'category' to match HierarchyNode type
         return {
           id: nodeId,
           name: graphNode.name,
           display_name: graphNode.display_name || graphNode.name,
-          type: children.length > 0 ? 'subclass' : 'class',
+          type: children.length > 0 ? ('subclass' as const) : ('class' as const),
           level,
           parent_id: parentMap.get(nodeId),
           children,
@@ -192,10 +191,10 @@ function App() {
         };
       };
 
-      const rootNodes = rootNodeIds.map(id => buildHierarchyNode(id, 0));
+      const rootNodes = rootNodeIds.map((id: string) => buildHierarchyNode(id, 0));
 
       const maxDepth = Math.max(
-        ...rootNodes.map(node => {
+        ...rootNodes.map((node) => {
           const getMaxDepth = (n: HierarchyNode): number => {
             if (n.children.length === 0) return n.level;
             return Math.max(...n.children.map(getMaxDepth));
@@ -265,7 +264,7 @@ function App() {
     try {
       setLoading(true);
       
-      // FIXED: Fetch full schema details including classes with attributes
+      // Fetch full schema details including classes with attributes
       console.log('📊 Loading full schema details:', schema.id);
       const fullSchema = await apiService.getSchema(schema.id);
       setCurrentSchema(fullSchema);
@@ -275,10 +274,8 @@ function App() {
       
       setView('visualization');
       setLeftDrawerOpen(true);
-      
-      showSnackbar('Schema loaded successfully', 'success');
-    } catch (error: any) {
-      showSnackbar(error.response?.data?.detail || 'Failed to load schema visualization', 'error');
+    } catch (error) {
+      showSnackbar('Failed to load schema', 'error');
       console.error(error);
     } finally {
       setLoading(false);
@@ -290,99 +287,49 @@ function App() {
     setInferredSchema(null);
   }, []);
 
-  // FIXED: Renamed to match SchemaLanding's expected prop name
   const handleUploadData = useCallback(async (files: File[], formats: FileFormat[]) => {
+    if (files.length === 0) return;
+
     try {
       setLoading(true);
-      
-      console.log('📁 Processing files for inference:', files.map(f => f.name));
-      
-      if (files.length === 1) {
-        showSnackbar('Analyzing file and inferring schema...', 'info');
-        const result = await apiService.inferSchema(files[0], formats[0]);
-        
-        // FIXED: Validate result structure
-        if (!result || typeof result !== 'object') {
-          throw new Error('Invalid response from server');
-        }
+      const file = files[0];
+      const format = formats[0];
 
-        // FIXED: Safe array access with defaults
-        const classes = Array.isArray(result.classes) ? result.classes : [];
-        const relationships = Array.isArray(result.relationships) ? result.relationships : [];
-        
-        if (classes.length === 0) {
-          showSnackbar('No classes could be inferred from the file', 'warning');
-          return;
-        }
-
+      console.log('📄 Inferring schema from file:', file.name);
+      
+      if (files.length > 1) {
+        // Multi-file schema inference
+        const result = await apiService.inferSchemaMulti(files, formats);
         setInferredSchema({
-          name: result.suggested_name || `Schema from ${files[0].name}`,
-          description: result.description || `Auto-generated schema from ${formats[0].toUpperCase()} file`,
-          classes: classes,
-          relationships: relationships,
-          sourceFile: files[0].name,
+          name: result.suggested_name,
+          description: result.description,
+          classes: result.classes,
+          relationships: result.relationships,
+          sourceFile: files.map((f) => f.name).join(', '),
         });
       } else {
-        showSnackbar(
-          `🔍 Analyzing ${files.length} files using FalkorDB to detect cross-file relationships...`,
-          'info'
-        );
-        
-        const result = await apiService.inferSchemaMulti(files, formats);
-        
-        // FIXED: Validate result structure
-        if (!result || typeof result !== 'object') {
-          throw new Error('Invalid response from server');
-        }
-
-        // FIXED: Safe array access with defaults
-        const classes = Array.isArray(result.classes) ? result.classes : [];
-        const relationships = Array.isArray(result.relationships) ? result.relationships : [];
-        
-        if (classes.length === 0) {
-          showSnackbar('No classes could be inferred from the files', 'warning');
-          return;
-        }
-
+        // Single file schema inference
+        const result = await apiService.inferSchema(file, format);
         setInferredSchema({
-          name: result.suggested_name || `Unified Schema (${files.length} files)`,
-          description: result.description || `Auto-generated unified schema from ${files.length} files`,
-          classes: classes,
-          relationships: relationships,
-          sourceFile: files.map(f => f.name).join(', '),
+          name: result.suggested_name,
+          description: result.description,
+          classes: result.classes,
+          relationships: result.relationships,
+          sourceFile: file.name,
         });
-        
-        if (result.metadata?.source_files) {
-          console.log('📊 Multi-file inference metadata:', result.metadata);
-        }
       }
 
       setView('schema-builder');
-      showSnackbar(
-        files.length === 1 
-          ? 'Schema inferred successfully!' 
-          : `✨ Unified schema inferred from ${files.length} files with cross-file relationships!`,
-        'success'
-      );
-    } catch (error: any) {
-      console.error('❌ Schema inference error:', error);
-      
-      // FIXED: Better error messages
-      let errorMessage = 'Failed to infer schema';
-      if (error.response?.data?.detail) {
-        errorMessage = error.response.data.detail;
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-      
-      showSnackbar(errorMessage, 'error');
+      showSnackbar('Schema inferred successfully', 'success');
+    } catch (error) {
+      showSnackbar('Failed to infer schema', 'error');
+      console.error(error);
     } finally {
       setLoading(false);
     }
   }, [showSnackbar]);
 
   const handleSchemaCreated = useCallback(async (schema: SchemaDefinition) => {
-    console.log('✅ Schema created:', schema);
     showSnackbar('Schema created successfully! Loading visualization...', 'success');
     
     await loadSchemas();
@@ -392,7 +339,6 @@ function App() {
     }, 500);
   }, [loadSchemas, handleSchemaSelect, showSnackbar]);
 
-  // FIXED: Renamed to match SchemaLanding's expected prop name
   const handleDeleteSchema = useCallback(async (schemaId: string) => {
     try {
       setLoading(true);
@@ -410,7 +356,7 @@ function App() {
     }
   }, [currentSchema, loadSchemas, showSnackbar, handleBackToLanding]);
 
-  // FIXED: Data loading with better column matching
+  // Data loading with better column matching
   const handleFileUpload = useCallback(async (files: File[], formats: FileFormat[]) => {
     if (!currentSchema) {
       showSnackbar('No schema selected', 'error');
@@ -428,7 +374,7 @@ function App() {
     try {
       setLoading(true);
       
-      // FIXED: Fetch full schema details with classes and attributes
+      // Fetch full schema details with classes and attributes
       console.log('📋 Fetching full schema details...');
       const fullSchema = await apiService.getSchema(currentSchema.id);
       
@@ -440,22 +386,22 @@ function App() {
       console.log('📄 Parsing file:', file.name);
       const parsed = await apiService.parseFile(file, format);
       
-      // FIXED: Safe array access and log available columns
+      // Safe array access and log available columns
       const columns = Array.isArray(parsed.columns) ? parsed.columns : [];
       console.log('📊 Available columns in file:', columns);
-      console.log('📊 Schema classes:', fullSchema.classes.map(c => ({
+      console.log('📊 Schema classes:', fullSchema.classes.map((c: SchemaClass) => ({
         name: c.name,
         attributes: c.attributes
       })));
       
-      // FIXED: Better column matching with fuzzy logic
-      const classMappings: ClassDataMapping[] = (fullSchema.classes || []).map(cls => {
+      // Better column matching with fuzzy logic
+      const classMappings: ClassDataMapping[] = (fullSchema.classes || []).map((cls: SchemaClass) => {
         console.log(`\n🔍 Matching columns for class: ${cls.name}`);
         console.log(`   Attributes: ${(cls.attributes || []).join(', ')}`);
         
         const columnMappings: ColumnMapping[] = (cls.attributes || [])
-          .map(attr => {
-            // FIXED: Use fuzzy matching function
+          .map((attr: string) => {
+            // Use fuzzy matching function
             const matchingColumn = findMatchingColumn(attr, columns);
             
             if (matchingColumn) {
@@ -477,7 +423,7 @@ function App() {
           class_id: cls.id,
           column_mappings: columnMappings,
         };
-      }).filter(mapping => mapping.column_mappings.length > 0);
+      }).filter((mapping: ClassDataMapping) => mapping.column_mappings.length > 0);
 
       console.log(`\n📋 Final class mappings: ${classMappings.length} classes with mappings`);
 
@@ -488,7 +434,7 @@ function App() {
         );
         console.error('❌ No column mappings found!');
         console.error('Available columns:', columns);
-        console.error('Schema attributes:', fullSchema.classes.flatMap(c => c.attributes || []));
+        console.error('Schema attributes:', fullSchema.classes.flatMap((c: SchemaClass) => c.attributes || []));
         return;
       }
 
@@ -508,7 +454,7 @@ function App() {
           'success'
         );
         
-        // FIXED: Update currentSchema with full schema details
+        // Update currentSchema with full schema details
         setCurrentSchema(fullSchema);
         
         await loadGraph(fullSchema.id);
@@ -532,7 +478,7 @@ function App() {
     }
   }, [view, currentSchema, loadSchemas, loadGraph]);
 
-  // FIXED: Single node ID handler matching HierarchyTree expected type
+  // Single node ID handler matching HierarchyTree expected type
   const handleNodeSelect = useCallback((nodeId: string) => {
     setSelectedNodeId(nodeId);
   }, []);
@@ -613,70 +559,22 @@ function App() {
             {graphLoading ? (
               <Box
                 sx={{
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
                   height: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                 }}
               >
-                <CircularProgress />
+                <CircularProgress size={60} />
               </Box>
-            ) : graph ? (
+            ) : (
               <LineageCanvas
                 graph={graph}
-                onNodeClick={(node) => handleNodeSelect(node.id)}
+                showAttributes={true}
+                showInstances={true}
               />
-            ) : (
-              <Box
-                sx={{
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  height: '100%',
-                }}
-              >
-                <Typography>No graph data available</Typography>
-              </Box>
             )}
           </Box>
-
-          <Drawer
-            anchor="right"
-            open={rightDrawerOpen}
-            onClose={() => setRightDrawerOpen(false)}
-            variant="persistent"
-            sx={{
-              width: 300,
-              flexShrink: 0,
-              '& .MuiDrawer-paper': {
-                width: 300,
-                boxSizing: 'border-box',
-                top: 64,
-                height: 'calc(100% - 64px)',
-              },
-            }}
-          >
-            <Box sx={{ p: 2 }}>
-              <Typography variant="h6" gutterBottom>
-                Details
-              </Typography>
-              {selectedNodeId && graph && (
-                <Stack spacing={2}>
-                  {(() => {
-                    const node = graph.nodes.find((n) => n.id === selectedNodeId);
-                    return node ? (
-                      <Paper key={selectedNodeId} sx={{ p: 2 }}>
-                        <Typography variant="subtitle2">{node.name}</Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          Type: {node.type}
-                        </Typography>
-                      </Paper>
-                    ) : null;
-                  })()}
-                </Stack>
-              )}
-            </Box>
-          </Drawer>
         </>
       );
     }
@@ -687,33 +585,25 @@ function App() {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
       {/* App Bar */}
-      <AppBar position="static">
+      <AppBar position="static" elevation={1}>
         <Toolbar>
-          <IconButton
-            edge="start"
-            color="inherit"
-            onClick={() => setLeftDrawerOpen(!leftDrawerOpen)}
-            sx={{ mr: 2, display: view === 'visualization' ? 'block' : 'none' }}
-          >
-            <MenuIcon />
-          </IconButton>
+          {view === 'visualization' && (
+            <IconButton
+              edge="start"
+              color="inherit"
+              onClick={() => setLeftDrawerOpen(!leftDrawerOpen)}
+              sx={{ mr: 2 }}
+            >
+              <MenuIcon />
+            </IconButton>
+          )}
 
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            Data Lineage Visualizer
+            Data Lineage Platform
             {currentSchema && ` - ${currentSchema.name}`}
           </Typography>
 
           <Stack direction="row" spacing={1}>
-            {view !== 'landing' && (
-              <Button
-                color="inherit"
-                startIcon={<Home />}
-                onClick={handleBackToLanding}
-              >
-                Home
-              </Button>
-            )}
-
             {view === 'visualization' && (
               <>
                 <Button
@@ -723,25 +613,15 @@ function App() {
                 >
                   Load Data
                 </Button>
-                <Button
-                  color="inherit"
-                  startIcon={<Refresh />}
-                  onClick={handleRefresh}
-                >
-                  Refresh
-                </Button>
+                <IconButton color="inherit" onClick={handleRefresh}>
+                  <Refresh />
+                </IconButton>
               </>
             )}
-
-            {view === 'landing' && (
-              <Button
-                color="inherit"
-                startIcon={<Refresh />}
-                onClick={handleRefresh}
-                disabled={loading}
-              >
-                Refresh
-              </Button>
+            {view !== 'landing' && (
+              <IconButton color="inherit" onClick={handleBackToLanding}>
+                <Home />
+              </IconButton>
             )}
           </Stack>
         </Toolbar>
@@ -752,7 +632,7 @@ function App() {
         {renderContent()}
       </Box>
 
-      {/* Data Loader Dialog */}
+      {/* Data Loader Modal */}
       {dataLoaderOpen && (
         <Box
           sx={{
@@ -769,22 +649,21 @@ function App() {
           }}
           onClick={() => setDataLoaderOpen(false)}
         >
-          <Box
-            sx={{ maxWidth: 600, width: '100%', p: 2 }}
-            onClick={(e) => e.stopPropagation()}
-          >
+          <Box sx={{ maxWidth: 600, width: '90%' }} onClick={(e) => e.stopPropagation()}>
             <Paper sx={{ p: 3 }}>
-              <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-                <Typography variant="h6">Load Data</Typography>
-                <IconButton onClick={() => setDataLoaderOpen(false)}>
-                  <Close />
-                </IconButton>
+              <Stack spacing={2}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Typography variant="h6">Load Data into Schema</Typography>
+                  <IconButton size="small" onClick={() => setDataLoaderOpen(false)}>
+                    <Close />
+                  </IconButton>
+                </Stack>
+                <FileUploader
+                  onFileSelect={handleFileUpload}
+                  multiFile={false}
+                  acceptedFormats={['csv', 'excel', 'json', 'xml']}
+                />
               </Stack>
-              <FileUploader
-                onFileSelect={handleFileUpload}
-                multiFile={false}
-                acceptedFormats={['csv', 'excel', 'json', 'xml']}
-              />
             </Paper>
           </Box>
         </Box>

@@ -1,4 +1,6 @@
-// frontend/src/components/schema/SchemaBuilder.tsx - WITH SCROLL FIXED
+// frontend/src/components/schema/SchemaBuilder.tsx
+// COMPLETE VERSION WITH VISIBLE RELATIONSHIP/EDGE CREATION
+
 import React, { useState, useCallback } from 'react';
 import {
   Box,
@@ -22,50 +24,44 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
   Grid,
-  Tooltip,
-  alpha,
+  Checkbox,
+  FormControlLabel,
 } from '@mui/material';
 import {
   Add,
   Delete,
-  ExpandMore,
   Save,
   Cancel,
   AccountTree,
-  DataObject,
   Link as LinkIcon,
-  EditNote,
-  CheckCircle,
-  Warning,
+  ArrowForward,
 } from '@mui/icons-material';
-import { TreeView, TreeItem } from '@mui/x-tree-view';
-import { SchemaDefinition, Cardinality } from '../../types';
-import apiService from '../../services/api';
 import { v4 as uuidv4 } from 'uuid';
+import apiService from '../../services/api';
+import { Cardinality } from '../../types';
 
-interface SchemaBuilderProps {
-  inferredSchema?: {
-    name: string;
-    description: string;
-    classes: any[];
-    relationships: any[];
-    sourceFile?: string;
-  } | null;
-  onSchemaCreated: (schema: SchemaDefinition) => void;
-  onCancel: () => void;
-}
+// ============================================
+// INTERFACES
+// ============================================
 
 interface SchemaClass {
   id: string;
   name: string;
-  attributes: string[];
+  attributes: Attribute[];
   parent_id?: string;
   level: number;
   children: SchemaClass[];
+  metadata?: any;
+}
+
+interface Attribute {
+  id: string;
+  name: string;
+  data_type: string;
+  is_primary_key?: boolean;
+  is_foreign_key?: boolean;
+  is_nullable?: boolean;
   metadata?: any;
 }
 
@@ -77,6 +73,21 @@ interface SchemaRelationship {
   cardinality: Cardinality;
 }
 
+interface SchemaBuilderProps {
+  inferredSchema?: {
+    name: string;
+    description: string;
+    classes: any[];
+    relationships: any[];
+  } | null;
+  onSchemaCreated: (schema: any) => void;
+  onCancel: () => void;
+}
+
+// ============================================
+// MAIN COMPONENT
+// ============================================
+
 export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
   inferredSchema,
   onSchemaCreated,
@@ -84,20 +95,20 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
 }) => {
   const [schemaName, setSchemaName] = useState(inferredSchema?.name || '');
   const [schemaDescription, setSchemaDescription] = useState(inferredSchema?.description || '');
-  const [classes, setClasses] = useState<SchemaClass[]>(
-    inferredSchema?.classes || []
-  );
+  const [classes, setClasses] = useState<SchemaClass[]>(inferredSchema?.classes || []);
   const [relationships, setRelationships] = useState<SchemaRelationship[]>(
     inferredSchema?.relationships || []
   );
-  const [selectedClass, setSelectedClass] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  // Dialog states
   const [classDialogOpen, setClassDialogOpen] = useState(false);
   const [relationshipDialogOpen, setRelationshipDialogOpen] = useState(false);
   const [editingClass, setEditingClass] = useState<SchemaClass | null>(null);
   const [newClassName, setNewClassName] = useState('');
-  const [newAttributes, setNewAttributes] = useState<string[]>(['']);
+  const [newAttributes, setNewAttributes] = useState<Attribute[]>([]);
   const [parentClassId, setParentClassId] = useState<string>('');
-  const [saving, setSaving] = useState(false);
+  const [inheritAttributes, setInheritAttributes] = useState(true);
 
   // Relationship form state
   const [relationshipForm, setRelationshipForm] = useState({
@@ -106,6 +117,10 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
     target_class_id: '',
     cardinality: Cardinality.ONE_TO_MANY,
   });
+
+  // ============================================
+  // HELPER FUNCTIONS
+  // ============================================
 
   const findClassById = useCallback((id: string, classList: SchemaClass[] = classes): SchemaClass | null => {
     for (const cls of classList) {
@@ -130,35 +145,37 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
     return result;
   }, []);
 
+  const createDefaultAttribute = (): Attribute => ({
+    id: uuidv4(),
+    name: '',
+    data_type: 'string',
+    is_primary_key: false,
+    is_foreign_key: false,
+    is_nullable: true,
+  });
+
+  // ============================================
+  // CLASS HANDLERS
+  // ============================================
+
   const handleAddClass = useCallback(() => {
     setEditingClass(null);
     setNewClassName('');
-    setNewAttributes(['']);
+    setNewAttributes([createDefaultAttribute()]);
     setParentClassId('');
+    setInheritAttributes(true);
     setClassDialogOpen(true);
   }, []);
 
-  const handleEditClass = useCallback((classId: string) => {
-    const cls = findClassById(classId);
-    if (cls) {
-      setEditingClass(cls);
-      setNewClassName(cls.name);
-      setNewAttributes(cls.attributes.length > 0 ? cls.attributes : ['']);
-      setParentClassId(cls.parent_id || '');
-      setClassDialogOpen(true);
-    }
-  }, [findClassById]);
-
   const handleSaveClass = useCallback(() => {
-    const filteredAttributes = newAttributes.filter((attr) => attr.trim() !== '');
-    
     if (!newClassName.trim()) {
       alert('Class name is required');
       return;
     }
 
+    const filteredAttributes = newAttributes.filter((attr) => attr.name.trim() !== '');
+
     if (editingClass) {
-      // Update existing class
       const updateClass = (classList: SchemaClass[]): SchemaClass[] => {
         return classList.map((cls) => {
           if (cls.id === editingClass.id) {
@@ -167,6 +184,7 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
               name: newClassName,
               attributes: filteredAttributes,
               parent_id: parentClassId || undefined,
+              level: parentClassId ? (findClassById(parentClassId)?.level || 0) + 1 : 0,
             };
           }
           if (cls.children.length > 0) {
@@ -181,7 +199,6 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
 
       setClasses(updateClass(classes));
     } else {
-      // Add new class
       const newClass: SchemaClass = {
         id: uuidv4(),
         name: newClassName,
@@ -192,11 +209,11 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
         metadata: {
           level: parentClassId ? (findClassById(parentClassId)?.level || 0) + 1 : 0,
           parent_id: parentClassId || undefined,
+          inherit_attributes: inheritAttributes,
         },
       };
 
       if (parentClassId) {
-        // Add as child
         const addToParent = (classList: SchemaClass[]): SchemaClass[] => {
           return classList.map((cls) => {
             if (cls.id === parentClassId) {
@@ -217,42 +234,48 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
 
         setClasses(addToParent(classes));
       } else {
-        // Add as root
         setClasses([...classes, newClass]);
       }
     }
 
     setClassDialogOpen(false);
     setNewClassName('');
-    setNewAttributes(['']);
+    setNewAttributes([]);
     setParentClassId('');
     setEditingClass(null);
-  }, [newClassName, newAttributes, parentClassId, editingClass, classes, findClassById]);
+  }, [
+    newClassName,
+    newAttributes,
+    parentClassId,
+    inheritAttributes,
+    editingClass,
+    classes,
+    findClassById,
+  ]);
 
   const handleDeleteClass = useCallback((classId: string) => {
-    if (!confirm('Delete this class? This will also delete its children and related relationships.')) {
-      return;
-    }
+    if (!confirm('Delete this class and all its subclasses?')) return;
 
-    // Remove class and its children
-    const removeClass = (classList: SchemaClass[]): SchemaClass[] => {
+    const deleteFromTree = (classList: SchemaClass[]): SchemaClass[] => {
       return classList
         .filter((cls) => cls.id !== classId)
         .map((cls) => ({
           ...cls,
-          children: removeClass(cls.children),
+          children: deleteFromTree(cls.children),
         }));
     };
 
-    setClasses(removeClass(classes));
-
-    // Remove related relationships
+    setClasses(deleteFromTree(classes));
     setRelationships(
       relationships.filter(
         (rel) => rel.source_class_id !== classId && rel.target_class_id !== classId
       )
     );
   }, [classes, relationships]);
+
+  // ============================================
+  // RELATIONSHIP HANDLERS
+  // ============================================
 
   const handleAddRelationship = useCallback(() => {
     setRelationshipForm({
@@ -270,6 +293,11 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
       return;
     }
 
+    if (relationshipForm.source_class_id === relationshipForm.target_class_id) {
+      alert('Source and target classes must be different');
+      return;
+    }
+
     const newRelationship: SchemaRelationship = {
       id: uuidv4(),
       name: relationshipForm.name,
@@ -283,13 +311,15 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
   }, [relationshipForm, relationships]);
 
   const handleDeleteRelationship = useCallback((relationshipId: string) => {
-    if (!confirm('Delete this relationship?')) {
-      return;
-    }
+    if (!confirm('Delete this relationship?')) return;
     setRelationships(relationships.filter((rel) => rel.id !== relationshipId));
   }, [relationships]);
 
-  const handleSaveSchema = useCallback(async () => {
+  // ============================================
+  // SCHEMA CREATION
+  // ============================================
+
+  const handleCreateSchema = async () => {
     if (!schemaName.trim()) {
       alert('Schema name is required');
       return;
@@ -300,358 +330,334 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
       return;
     }
 
+    setSaving(true);
+
     try {
-      setSaving(true);
+      console.log('🚀 Creating schema with hierarchy...');
 
-      const flatClasses = flattenClasses(classes);
+      const rootClasses = classes.filter((cls) => !cls.parent_id);
+      const allClasses = flattenClasses(classes);
 
-      const schemaRequest = {
+      const schemaPayload = {
         name: schemaName,
         description: schemaDescription,
-        classes: flatClasses.map((cls) => ({
+        classes: rootClasses.map((cls) => ({
           id: cls.id,
           name: cls.name,
           attributes: cls.attributes,
-          metadata: {
-            level: cls.level,
-            parent_id: cls.parent_id,
-          },
+          metadata: cls.metadata,
         })),
-        relationships: relationships.map((rel) => ({
-          id: rel.id,
-          name: rel.name,
-          source_class_id: rel.source_class_id,
-          target_class_id: rel.target_class_id,
-          cardinality: rel.cardinality,
-        })),
+        relationships: relationships,
       };
 
-      const createdSchema = await apiService.createSchema(schemaRequest);
+      console.log('📝 Creating schema with root classes:', schemaPayload);
+      const createdSchema = await apiService.createSchema(schemaPayload);
+      console.log('✅ Schema created:', createdSchema);
+
+      const subclassesToCreate = allClasses.filter((cls) => cls.parent_id);
+
+      for (const subclass of subclassesToCreate) {
+        console.log(`➕ Creating subclass: ${subclass.name} under parent: ${subclass.parent_id}`);
+
+        const createSubclassRequest = {
+          parent_class_id: subclass.parent_id!,
+          name: subclass.name,
+          display_name: subclass.name,
+          description: subclass.metadata?.description || '',
+          inherit_attributes: subclass.metadata?.inherit_attributes !== false,
+          additional_attributes: subclass.attributes,
+          metadata: subclass.metadata || {},
+        };
+
+        try {
+          const createdSubclass = await apiService.createSubclass(
+            createdSchema.id,
+            createSubclassRequest
+          );
+          console.log('✅ Subclass created:', createdSubclass);
+        } catch (error) {
+          console.error(`❌ Failed to create subclass ${subclass.name}:`, error);
+          throw error;
+        }
+      }
+
+      console.log('✅ Schema with full hierarchy created successfully!');
+      alert('Schema created successfully with all subclasses!');
       onSchemaCreated(createdSchema);
     } catch (error: any) {
-      alert(error.response?.data?.detail || 'Failed to create schema');
-      console.error(error);
+      console.error('❌ Error creating schema:', error);
+      
+      // Better error message extraction
+      let errorMessage = 'Unknown error';
+      if (error.response?.data?.detail) {
+        const detail = error.response.data.detail;
+        if (Array.isArray(detail)) {
+          // Pydantic validation errors
+          errorMessage = detail.map((e: any) => {
+            const loc = e.loc ? e.loc.join(' -> ') : '';
+            return `${loc}: ${e.msg || e}`;
+          }).join('\n');
+        } else {
+          errorMessage = detail;
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      alert(`Error creating schema:\n${errorMessage}`);
     } finally {
       setSaving(false);
     }
-  }, [schemaName, schemaDescription, classes, relationships, flattenClasses, onSchemaCreated]);
-
-  const renderClassTree = (classList: SchemaClass[]) => {
-    return classList.map((cls) => (
-      <TreeItem
-        key={cls.id}
-        nodeId={cls.id}
-        label={
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              py: 1,
-            }}
-          >
-            <Stack direction="row" spacing={1} alignItems="center">
-              <DataObject fontSize="small" color="primary" />
-              <Typography variant="body1" fontWeight="medium">
-                {cls.name}
-              </Typography>
-              <Chip
-                label={`${cls.attributes.length} attrs`}
-                size="small"
-                variant="outlined"
-              />
-            </Stack>
-            <Stack direction="row" spacing={0.5}>
-              <IconButton
-                size="small"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleEditClass(cls.id);
-                }}
-              >
-                <EditNote fontSize="small" />
-              </IconButton>
-              <IconButton
-                size="small"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDeleteClass(cls.id);
-                }}
-              >
-                <Delete fontSize="small" />
-              </IconButton>
-            </Stack>
-          </Box>
-        }
-      >
-        {cls.children.length > 0 && renderClassTree(cls.children)}
-      </TreeItem>
-    ));
   };
 
+  // ============================================
+  // RENDER
+  // ============================================
+
   return (
-    <Box
-      sx={{
-        minHeight: '100vh',
-        height: '100%',
-        overflow: 'auto',
-        background: (theme) =>
-          `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.05)} 0%, ${alpha(
-            theme.palette.secondary.main,
-            0.05
-          )} 100%)`,
-        py: 4,
-      }}
-    >
-      <Container maxWidth="xl" sx={{ height: '100%' }}>
-        <Stack spacing={3} sx={{ height: '100%' }}>
-          {/* Header */}
-          <Paper elevation={2} sx={{ p: 3 }}>
-            <Stack spacing={2}>
-              <Typography variant="h4" fontWeight="bold">
-                {inferredSchema ? 'Review & Customize Inferred Schema' : 'Create New Schema'}
-              </Typography>
-              {inferredSchema?.sourceFile && (
-                <Chip
-                  icon={<CheckCircle />}
-                  label={`Inferred from: ${inferredSchema.sourceFile}`}
-                  color="success"
-                  variant="outlined"
-                />
-              )}
-              <TextField
-                fullWidth
-                label="Schema Name"
-                value={schemaName}
-                onChange={(e) => setSchemaName(e.target.value)}
-                required
-              />
-              <TextField
-                fullWidth
-                label="Description"
-                value={schemaDescription}
-                onChange={(e) => setSchemaDescription(e.target.value)}
-                multiline
-                rows={2}
-              />
-            </Stack>
-          </Paper>
+    <Container maxWidth="xl" sx={{ py: 4 }}>
+      <Stack spacing={3}>
+        {/* Header */}
+        <Paper elevation={2} sx={{ p: 3 }}>
+          <Stack direction="row" alignItems="center" spacing={2} mb={2}>
+            <AccountTree color="primary" fontSize="large" />
+            <Typography variant="h4" fontWeight={600}>
+              Schema Builder
+            </Typography>
+          </Stack>
 
-          {/* Main Content - SCROLL FIXED */}
-          <Grid container spacing={3} sx={{ flexGrow: 1, overflow: 'hidden' }}>
-            {/* Classes Section - WITH SCROLL */}
-            <Grid item xs={12} md={6} sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-              <Paper 
-                elevation={2} 
-                sx={{ 
-                  p: 3, 
-                  flexGrow: 1,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  maxHeight: 'calc(100vh - 400px)',
-                  minHeight: '500px',
-                }}
-              >
-                <Stack spacing={2} sx={{ height: '100%', overflow: 'hidden' }}>
-                  <Stack direction="row" justifyContent="space-between" alignItems="center">
-                    <Typography variant="h6">
-                      <AccountTree sx={{ mr: 1, verticalAlign: 'middle' }} />
-                      Class Hierarchy
-                    </Typography>
-                    <Button
-                      variant="contained"
-                      size="small"
-                      startIcon={<Add />}
-                      onClick={handleAddClass}
-                    >
-                      Add Class
-                    </Button>
-                  </Stack>
+          <Stack spacing={2}>
+            <TextField
+              fullWidth
+              label="Schema Name"
+              value={schemaName}
+              onChange={(e) => setSchemaName(e.target.value)}
+              required
+              variant="outlined"
+            />
+            <TextField
+              fullWidth
+              label="Description"
+              value={schemaDescription}
+              onChange={(e) => setSchemaDescription(e.target.value)}
+              multiline
+              rows={2}
+              variant="outlined"
+            />
+          </Stack>
+        </Paper>
 
-                  <Divider />
+        {/* Classes and Relationships Grid */}
+        <Grid container spacing={3}>
+          {/* Classes Section */}
+          <Grid item xs={12} md={6}>
+            <Paper elevation={2} sx={{ p: 3, height: '100%' }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+                <Typography variant="h6" fontWeight={600}>
+                  Classes ({flattenClasses(classes).length})
+                </Typography>
+                <Button variant="contained" startIcon={<Add />} onClick={handleAddClass}>
+                  Add Class
+                </Button>
+              </Stack>
 
-                  {/* SCROLLABLE CONTENT */}
-                  <Box sx={{ flexGrow: 1, overflow: 'auto', pr: 1 }}>
-                    {classes.length === 0 ? (
-                      <Box
-                        sx={{
-                          p: 4,
-                          textAlign: 'center',
-                          border: '2px dashed',
-                          borderColor: 'divider',
-                          borderRadius: 2,
-                        }}
-                      >
-                        <DataObject sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-                        <Typography variant="body1" color="text.secondary">
-                          No classes defined yet
-                        </Typography>
-                        <Button
-                          variant="outlined"
-                          startIcon={<Add />}
-                          onClick={handleAddClass}
-                          sx={{ mt: 2 }}
-                        >
-                          Add First Class
-                        </Button>
-                      </Box>
-                    ) : (
-                      <TreeView
-                        defaultCollapseIcon={<ExpandMore />}
-                        defaultExpandIcon={<AccountTree />}
-                        defaultExpanded={classes.map((c) => c.id)}
-                      >
-                        {renderClassTree(classes)}
-                      </TreeView>
-                    )}
-                  </Box>
-                </Stack>
-              </Paper>
-            </Grid>
-
-            {/* Relationships Section - WITH SCROLL */}
-            <Grid item xs={12} md={6} sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-              <Paper 
-                elevation={2} 
-                sx={{ 
-                  p: 3, 
-                  flexGrow: 1,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  maxHeight: 'calc(100vh - 400px)',
-                  minHeight: '500px',
-                }}
-              >
-                <Stack spacing={2} sx={{ height: '100%', overflow: 'hidden' }}>
-                  <Stack direction="row" justifyContent="space-between" alignItems="center">
-                    <Typography variant="h6">
-                      <LinkIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-                      Relationships
-                    </Typography>
-                    <Button
-                      variant="contained"
-                      size="small"
-                      startIcon={<Add />}
-                      onClick={handleAddRelationship}
-                      disabled={flattenClasses(classes).length < 2}
-                    >
-                      Add Relationship
-                    </Button>
-                  </Stack>
-
-                  <Divider />
-
-                  {/* SCROLLABLE CONTENT */}
-                  <Box sx={{ flexGrow: 1, overflow: 'auto', pr: 1 }}>
-                    {relationships.length === 0 ? (
-                      <Box
-                        sx={{
-                          p: 4,
-                          textAlign: 'center',
-                          border: '2px dashed',
-                          borderColor: 'divider',
-                          borderRadius: 2,
-                        }}
-                      >
-                        <LinkIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
-                        <Typography variant="body1" color="text.secondary">
-                          No relationships defined yet
-                        </Typography>
-                        {flattenClasses(classes).length >= 2 && (
-                          <Button
-                            variant="outlined"
-                            startIcon={<Add />}
-                            onClick={handleAddRelationship}
-                            sx={{ mt: 2 }}
+              {classes.length === 0 ? (
+                <Box
+                  sx={{
+                    textAlign: 'center',
+                    py: 6,
+                    border: '2px dashed',
+                    borderColor: 'divider',
+                    borderRadius: 2,
+                  }}
+                >
+                  <AccountTree sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
+                  <Typography variant="body1" color="text.secondary" gutterBottom>
+                    No classes defined yet
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" mb={2}>
+                    Classes are the building blocks of your schema
+                  </Typography>
+                  <Button variant="outlined" startIcon={<Add />} onClick={handleAddClass}>
+                    Add Your First Class
+                  </Button>
+                </Box>
+              ) : (
+                <Stack spacing={1.5} sx={{ maxHeight: 500, overflowY: 'auto' }}>
+                  {flattenClasses(classes).map((cls) => (
+                    <Card key={cls.id} variant="outlined">
+                      <CardContent sx={{ pb: 1 }}>
+                        <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+                          <Stack spacing={0.5} flex={1}>
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              <Typography variant="subtitle1" fontWeight={600}>
+                                {cls.name}
+                              </Typography>
+                              {cls.level > 0 && (
+                                <Chip size="small" label={`Level ${cls.level}`} color="info" />
+                              )}
+                            </Stack>
+                            <Typography variant="body2" color="text.secondary">
+                              {cls.attributes.length} attribute{cls.attributes.length !== 1 ? 's' : ''}
+                            </Typography>
+                          </Stack>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => handleDeleteClass(cls.id)}
                           >
-                            Add First Relationship
-                          </Button>
-                        )}
-                      </Box>
-                    ) : (
-                      <Stack spacing={2}>
-                        {relationships.map((rel) => {
-                          const sourceClass = findClassById(rel.source_class_id);
-                          const targetClass = findClassById(rel.target_class_id);
-
-                          return (
-                            <Card key={rel.id} variant="outlined">
-                              <CardContent>
-                                <Stack spacing={1}>
-                                  <Typography variant="subtitle1" fontWeight="medium">
-                                    {rel.name}
-                                  </Typography>
-                                  <Stack direction="row" spacing={1} alignItems="center">
-                                    <Chip
-                                      label={sourceClass?.name || 'Unknown'}
-                                      size="small"
-                                      color="primary"
-                                      variant="outlined"
-                                    />
-                                    <Typography variant="body2" color="text.secondary">
-                                      →
-                                    </Typography>
-                                    <Chip
-                                      label={targetClass?.name || 'Unknown'}
-                                      size="small"
-                                      color="secondary"
-                                      variant="outlined"
-                                    />
-                                  </Stack>
-                                  <Chip
-                                    label={rel.cardinality}
-                                    size="small"
-                                    variant="filled"
-                                  />
-                                </Stack>
-                              </CardContent>
-                              <CardActions>
-                                <Button
-                                  size="small"
-                                  startIcon={<Delete />}
-                                  onClick={() => handleDeleteRelationship(rel.id)}
-                                  color="error"
-                                >
-                                  Delete
-                                </Button>
-                              </CardActions>
-                            </Card>
-                          );
-                        })}
-                      </Stack>
-                    )}
-                  </Box>
+                            <Delete fontSize="small" />
+                          </IconButton>
+                        </Stack>
+                      </CardContent>
+                    </Card>
+                  ))}
                 </Stack>
-              </Paper>
-            </Grid>
+              )}
+            </Paper>
           </Grid>
 
-          {/* Action Buttons */}
-          <Paper elevation={2} sx={{ p: 3 }}>
-            <Stack direction="row" spacing={2} justifyContent="flex-end">
-              <Button
-                variant="outlined"
-                startIcon={<Cancel />}
-                onClick={onCancel}
-                disabled={saving}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="contained"
-                startIcon={<Save />}
-                onClick={handleSaveSchema}
-                disabled={saving || !schemaName.trim() || flattenClasses(classes).length === 0}
-              >
-                {saving ? 'Creating...' : 'Create Schema'}
-              </Button>
-            </Stack>
-          </Paper>
-        </Stack>
-      </Container>
+          {/* Relationships Section */}
+          <Grid item xs={12} md={6}>
+            <Paper elevation={2} sx={{ p: 3, height: '100%' }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
+                <Typography variant="h6" fontWeight={600}>
+                  Relationships / Edges ({relationships.length})
+                </Typography>
+                <Button
+                  variant="contained"
+                  startIcon={<Add />}
+                  onClick={handleAddRelationship}
+                  disabled={flattenClasses(classes).length < 2}
+                >
+                  Add Edge
+                </Button>
+              </Stack>
+
+              {flattenClasses(classes).length < 2 ? (
+                <Box
+                  sx={{
+                    textAlign: 'center',
+                    py: 6,
+                    border: '2px dashed',
+                    borderColor: 'divider',
+                    borderRadius: 2,
+                  }}
+                >
+                  <LinkIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
+                  <Typography variant="body1" color="text.secondary" gutterBottom>
+                    Add at least 2 classes first
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Relationships connect your classes together
+                  </Typography>
+                </Box>
+              ) : relationships.length === 0 ? (
+                <Box
+                  sx={{
+                    textAlign: 'center',
+                    py: 6,
+                    border: '2px dashed',
+                    borderColor: 'divider',
+                    borderRadius: 2,
+                  }}
+                >
+                  <LinkIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
+                  <Typography variant="body1" color="text.secondary" gutterBottom>
+                    No relationships defined yet
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" mb={2}>
+                    Connect your classes with relationships
+                  </Typography>
+                  <Button
+                    variant="outlined"
+                    startIcon={<Add />}
+                    onClick={handleAddRelationship}
+                  >
+                    Add First Relationship
+                  </Button>
+                </Box>
+              ) : (
+                <Stack spacing={1.5} sx={{ maxHeight: 500, overflowY: 'auto' }}>
+                  {relationships.map((rel) => {
+                    const sourceClass = findClassById(rel.source_class_id);
+                    const targetClass = findClassById(rel.target_class_id);
+
+                    return (
+                      <Card key={rel.id} variant="outlined">
+                        <CardContent sx={{ pb: 1 }}>
+                          <Stack spacing={1}>
+                            <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+                              <Typography variant="subtitle1" fontWeight={600}>
+                                {rel.name}
+                              </Typography>
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => handleDeleteRelationship(rel.id)}
+                              >
+                                <Delete fontSize="small" />
+                              </IconButton>
+                            </Stack>
+                            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                              <Chip
+                                label={sourceClass?.name || 'Unknown'}
+                                size="small"
+                                color="primary"
+                                variant="outlined"
+                              />
+                              <ArrowForward fontSize="small" color="action" />
+                              <Chip
+                                label={targetClass?.name || 'Unknown'}
+                                size="small"
+                                color="secondary"
+                                variant="outlined"
+                              />
+                            </Stack>
+                            <Chip
+                              label={rel.cardinality}
+                              size="small"
+                              variant="filled"
+                              sx={{ width: 'fit-content' }}
+                            />
+                          </Stack>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </Stack>
+              )}
+            </Paper>
+          </Grid>
+        </Grid>
+
+        {/* Actions */}
+        <Paper elevation={2} sx={{ p: 3 }}>
+          <Stack direction="row" spacing={2} justifyContent="flex-end">
+            <Button
+              variant="outlined"
+              startIcon={<Cancel />}
+              onClick={onCancel}
+              disabled={saving}
+              size="large"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              startIcon={saving ? undefined : <Save />}
+              onClick={handleCreateSchema}
+              disabled={saving || !schemaName.trim() || flattenClasses(classes).length === 0}
+              size="large"
+            >
+              {saving ? 'Creating...' : 'Create Schema'}
+            </Button>
+          </Stack>
+        </Paper>
+      </Stack>
 
       {/* Class Dialog */}
-      <Dialog open={classDialogOpen} onClose={() => setClassDialogOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={classDialogOpen} onClose={() => setClassDialogOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>{editingClass ? 'Edit Class' : 'Add New Class'}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
@@ -677,33 +683,67 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
                   .filter((c) => !editingClass || c.id !== editingClass.id)
                   .map((cls) => (
                     <MenuItem key={cls.id} value={cls.id}>
-                      {cls.name}
+                      {cls.name} (Level {cls.level})
                     </MenuItem>
                   ))}
               </Select>
             </FormControl>
 
+            {parentClassId && (
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={inheritAttributes}
+                    onChange={(e) => setInheritAttributes(e.target.checked)}
+                  />
+                }
+                label="Inherit parent attributes"
+              />
+            )}
+
             <Divider />
 
-            <Typography variant="subtitle2">Attributes</Typography>
+            <Typography variant="subtitle2" fontWeight={600}>
+              Attributes
+            </Typography>
 
             {newAttributes.map((attr, index) => (
-              <Stack key={index} direction="row" spacing={1}>
+              <Stack key={attr.id} direction="row" spacing={1} alignItems="center">
                 <TextField
-                  fullWidth
-                  label={`Attribute ${index + 1}`}
-                  value={attr}
+                  label="Name"
+                  value={attr.name}
                   onChange={(e) => {
                     const updated = [...newAttributes];
-                    updated[index] = e.target.value;
+                    updated[index] = { ...attr, name: e.target.value };
                     setNewAttributes(updated);
                   }}
+                  size="small"
+                  sx={{ flex: 1 }}
                 />
+                <TextField
+                  select
+                  label="Type"
+                  value={attr.data_type}
+                  onChange={(e) => {
+                    const updated = [...newAttributes];
+                    updated[index] = { ...attr, data_type: e.target.value };
+                    setNewAttributes(updated);
+                  }}
+                  size="small"
+                  sx={{ width: 120 }}
+                >
+                  <MenuItem value="string">String</MenuItem>
+                  <MenuItem value="integer">Integer</MenuItem>
+                  <MenuItem value="float">Float</MenuItem>
+                  <MenuItem value="boolean">Boolean</MenuItem>
+                  <MenuItem value="date">Date</MenuItem>
+                </TextField>
                 <IconButton
                   onClick={() => {
                     setNewAttributes(newAttributes.filter((_, i) => i !== index));
                   }}
                   disabled={newAttributes.length === 1}
+                  size="small"
                 >
                   <Delete />
                 </IconButton>
@@ -713,7 +753,7 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
             <Button
               variant="outlined"
               startIcon={<Add />}
-              onClick={() => setNewAttributes([...newAttributes, ''])}
+              onClick={() => setNewAttributes([...newAttributes, createDefaultAttribute()])}
             >
               Add Attribute
             </Button>
@@ -722,7 +762,7 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
         <DialogActions>
           <Button onClick={() => setClassDialogOpen(false)}>Cancel</Button>
           <Button onClick={handleSaveClass} variant="contained">
-            Save
+            Save Class
           </Button>
         </DialogActions>
       </Dialog>
@@ -734,7 +774,12 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>Add New Relationship</DialogTitle>
+        <DialogTitle>
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <LinkIcon />
+            <Typography variant="h6">Add Relationship / Edge</Typography>
+          </Stack>
+        </DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField
@@ -745,6 +790,7 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
                 setRelationshipForm({ ...relationshipForm, name: e.target.value })
               }
               required
+              placeholder="e.g., owns, contains, manages"
             />
 
             <FormControl fullWidth required>
@@ -805,15 +851,39 @@ export const SchemaBuilder: React.FC<SchemaBuilderProps> = ({
                 <MenuItem value={Cardinality.MANY_TO_MANY}>N:M (Many to Many)</MenuItem>
               </Select>
             </FormControl>
+
+            <Box
+              sx={{
+                p: 2,
+                bgcolor: 'info.50',
+                borderRadius: 1,
+                border: 1,
+                borderColor: 'info.main',
+              }}
+            >
+              <Typography variant="body2" color="info.dark">
+                <strong>Preview:</strong> {relationshipForm.source_class_id && relationshipForm.target_class_id
+                  ? `${findClassById(relationshipForm.source_class_id)?.name || '?'} → ${findClassById(relationshipForm.target_class_id)?.name || '?'}`
+                  : 'Select classes to preview'}
+              </Typography>
+            </Box>
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setRelationshipDialogOpen(false)}>Cancel</Button>
-          <Button onClick={handleSaveRelationship} variant="contained">
+          <Button
+            onClick={handleSaveRelationship}
+            variant="contained"
+            disabled={
+              !relationshipForm.name.trim() ||
+              !relationshipForm.source_class_id ||
+              !relationshipForm.target_class_id
+            }
+          >
             Add Relationship
           </Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </Container>
   );
 };
