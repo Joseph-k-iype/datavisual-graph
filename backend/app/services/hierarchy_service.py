@@ -1,7 +1,7 @@
 # backend/app/services/hierarchy_service.py
 """
 Hierarchy Service - FULLY FIXED
-Handles class hierarchy operations including subclass creation
+NO ATTRIBUTE INHERITANCE - Each class has only its own attributes
 """
 
 from typing import List, Dict, Any, Optional
@@ -26,6 +26,7 @@ class HierarchyService:
         """
         Get complete hierarchy tree for a schema
         Returns nested structure with parent-child relationships
+        ✅ FIXED: Ensures name and display_name are always set with proper fallbacks
         """
         try:
             logger.info(f"📊 Building hierarchy tree for schema: {schema_id}")
@@ -61,8 +62,8 @@ class HierarchyService:
             
             for row in result.result_set:
                 node_id = row[0]
-                name = row[1]
-                display_name = row[2] or name
+                name_raw = row[1]
+                display_name_raw = row[2]
                 level = row[3] if row[3] is not None else 0
                 parent_id = row[4] if row[4] else None
                 attributes_str = row[5]
@@ -70,7 +71,19 @@ class HierarchyService:
                 child_ids = row[7] or []
                 instance_count = row[8]
                 
-                # Parse attributes
+                # ✅ CRITICAL FIX: Ensure name and display_name are never None/empty
+                if display_name_raw and str(display_name_raw).strip():
+                    final_display_name = str(display_name_raw).strip()
+                    final_name = str(name_raw).strip() if name_raw else final_display_name
+                elif name_raw and str(name_raw).strip():
+                    final_name = str(name_raw).strip()
+                    final_display_name = final_name
+                else:
+                    final_name = f"Class_{node_id[:8]}"
+                    final_display_name = final_name
+                    logger.warning(f"⚠️ Node {node_id} has no name, using fallback: {final_name}")
+                
+                # Parse attributes - ✅ ONLY THIS CLASS'S ATTRIBUTES
                 attributes = []
                 if attributes_str:
                     if isinstance(attributes_str, str):
@@ -101,8 +114,8 @@ class HierarchyService:
                 
                 nodes_by_id[node_id] = {
                     'id': node_id,
-                    'name': name,
-                    'display_name': display_name,
+                    'name': final_name,
+                    'display_name': final_display_name,
                     'type': node_type,
                     'level': level,
                     'parent_id': parent_id,
@@ -174,7 +187,7 @@ class HierarchyService:
     ) -> HierarchyNode:
         """
         Create a subclass under a parent class
-        Creates HAS_SUBCLASS relationship (parent->child direction)
+        ✅ FIXED: NO ATTRIBUTE INHERITANCE - only uses additional_attributes
         """
         try:
             logger.info(f"Creating subclass: {request.name} under {request.parent_class_id}")
@@ -199,41 +212,13 @@ class HierarchyService:
             child_level = parent_level + 1
             
             class_id = str(uuid.uuid4())
+            final_display_name = request.display_name if request.display_name else request.name
             
-            # Build attributes list
-            attributes = []
+            # ✅ CRITICAL FIX: NO INHERITANCE - only use additional_attributes
+            # Each class has ONLY its own attributes
+            attributes = list(request.additional_attributes)  # Only the new attributes
             
-            # Inherit parent attributes if requested
-            if request.inherit_attributes:
-                inherit_query = """
-                MATCH (parent:SchemaClass {id: $parent_id})
-                RETURN parent.attributes as attributes
-                """
-                inherit_result = db.execute_query(inherit_query, {'parent_id': request.parent_class_id})
-                
-                if inherit_result.result_set and inherit_result.result_set[0][0]:
-                    parent_attrs = inherit_result.result_set[0][0]
-                    if isinstance(parent_attrs, str):
-                        parent_attrs = json.loads(parent_attrs)
-                    
-                    # Add parent attributes first
-                    for attr in parent_attrs:
-                        if isinstance(attr, dict):
-                            attributes.append(Attribute(**attr))
-                        elif isinstance(attr, str):
-                            attributes.append(Attribute(
-                                id=str(uuid.uuid4()),
-                                name=attr,
-                                data_type='string',
-                                is_primary_key=False,
-                                is_foreign_key=False,
-                                is_nullable=True,
-                                metadata={}
-                            ))
-            
-            # Add additional attributes
-            for attr in request.additional_attributes:
-                attributes.append(attr)
+            logger.info(f"   📝 Subclass will have {len(attributes)} attributes (NO inheritance)")
             
             # Create subclass node
             create_query = """
@@ -245,6 +230,7 @@ class HierarchyService:
                 display_name: $display_name,
                 schema_id: $schema_id,
                 level: $level,
+                parent_id: $parent_id,
                 attributes: $attributes,
                 metadata: $metadata
             })
@@ -256,6 +242,7 @@ class HierarchyService:
             metadata = request.metadata or {}
             metadata['parent_class_id'] = request.parent_class_id
             metadata['parent_class_name'] = parent_name
+            metadata['inherited_attributes'] = False  # Mark that we don't inherit
             if request.description:
                 metadata['description'] = request.description
             
@@ -278,18 +265,18 @@ class HierarchyService:
                 'parent_id': request.parent_class_id,
                 'class_id': class_id,
                 'name': request.name,
-                'display_name': request.display_name or request.name,
+                'display_name': final_display_name,
                 'level': child_level,
                 'attributes': json.dumps(attributes_data),
                 'metadata': json.dumps(metadata)
             })
             
-            logger.info(f"✅ Created subclass: {request.name} (level {child_level})")
+            logger.info(f"✅ Created subclass: {request.name} (level {child_level}, {len(attributes)} own attributes)")
             
             return HierarchyNode(
                 id=class_id,
                 name=request.name,
-                display_name=request.display_name or request.name,
+                display_name=final_display_name,
                 type='subclass',
                 level=child_level,
                 parent_id=request.parent_class_id,
@@ -417,7 +404,7 @@ class HierarchyService:
                     total_classes=row[0] + (row[1] or 0),
                     root_classes=row[0],
                     max_depth=row[2] or 0,
-                    avg_children_per_class=0.0  # Can calculate if needed
+                    avg_children_per_class=0.0
                 )
             
             return HierarchyStatsResponse(

@@ -1,5 +1,5 @@
 // frontend/src/components/schema/SchemaTreeCard.tsx
-// Tree View Card Component - FULLY FIXED
+// ✅ FULLY FIXED: Proper name display with robust fallbacks
 
 import React, { useState } from 'react';
 import {
@@ -78,12 +78,24 @@ export const SchemaTreeCard: React.FC<SchemaTreeCardProps> = ({
     }
   };
 
-  // Render individual tree node
+  // ✅ Render individual tree node with robust name handling
   const renderTreeNode = (node: HierarchyNode): React.ReactNode => {
     const isRoot = node.level === 0;
     const hasChildren = node.children && node.children.length > 0;
     const isSelected = selectedNodeId === node.id;
     const instanceCount = node.instance_count ?? 0;
+    
+    // ✅ CRITICAL FIX: Robust name resolution with multiple fallbacks
+    let displayName: string;
+    if (node.display_name && String(node.display_name).trim()) {
+      displayName = String(node.display_name).trim();
+    } else if (node.name && String(node.name).trim()) {
+      displayName = String(node.name).trim();
+    } else {
+      // Last resort fallback
+      displayName = `Class_${node.id.substring(0, 8)}`;
+      console.warn(`⚠️ Node ${node.id} has no name, using fallback: ${displayName}`);
+    }
 
     return (
       <TreeItem
@@ -115,9 +127,9 @@ export const SchemaTreeCard: React.FC<SchemaTreeCardProps> = ({
               <TableChart fontSize="small" color="secondary" sx={{ mr: 1 }} />
             )}
 
-            {/* Class name */}
+            {/* ✅ Display name with guaranteed value */}
             <Typography variant="body2" fontWeight={isRoot ? 600 : 500}>
-              {node.display_name || node.name}
+              {displayName}
             </Typography>
 
             {/* Level indicator */}

@@ -6,6 +6,7 @@ All endpoints for schema management
 
 from fastapi import APIRouter, HTTPException, status, UploadFile, File, Form
 from typing import List, Dict, Any, Optional
+from pydantic import BaseModel, Field
 from ..models.schemas import (
     SchemaDefinition, SchemaCreateRequest, SchemaStats,
     LineageGraphResponse, LineagePathRequest, LineagePathResponse,
@@ -22,6 +23,18 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/schemas", tags=["schemas"])
+
+
+# ============================================
+# ✅ REQUEST MODELS - ADDED FOR RELATIONSHIP CREATION
+# ============================================
+
+class CreateRelationshipRequest(BaseModel):
+    """Request model for creating relationships"""
+    source_class_id: str = Field(..., description="Source class ID")
+    target_class_id: str = Field(..., description="Target class ID")
+    name: str = Field(..., description="Relationship name")
+    cardinality: Cardinality = Field(default=Cardinality.ONE_TO_MANY, description="Relationship cardinality")
 
 
 # ============================================
@@ -232,34 +245,40 @@ async def delete_schema(schema_id: str):
 
 
 # ============================================
-# RELATIONSHIPS
+# ✅ RELATIONSHIPS - FIXED TO USE REQUEST BODY
 # ============================================
 
 @router.post("/{schema_id}/relationships", response_model=SchemaRelationship)
 async def create_relationship(
     schema_id: str,
-    source_class_id: str,
-    target_class_id: str,
-    name: str,
-    cardinality: Cardinality = Cardinality.ONE_TO_MANY
+    request: CreateRelationshipRequest  # ✅ NOW USES REQUEST BODY INSTEAD OF QUERY PARAMS
 ):
     """Create a new relationship between classes"""
     try:
+        logger.info(f"🔗 Creating relationship: {request.name}")
+        logger.info(f"   Source: {request.source_class_id}")
+        logger.info(f"   Target: {request.target_class_id}")
+        logger.info(f"   Cardinality: {request.cardinality}")
+        
         relationship = SchemaService.create_relationship(
             schema_id,
-            source_class_id,
-            target_class_id,
-            name,
-            cardinality
+            request.source_class_id,
+            request.target_class_id,
+            request.name,
+            request.cardinality
         )
+        
+        logger.info(f"✅ Relationship created: {relationship.id}")
         return relationship
+        
     except ValueError as e:
+        logger.error(f"Validation error: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
         )
     except Exception as e:
-        logger.error(f"Failed to create relationship: {str(e)}")
+        logger.error(f"❌ Failed to create relationship: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create relationship: {str(e)}"

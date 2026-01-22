@@ -1,7 +1,7 @@
 // frontend/src/components/lineage/LineageCanvas.tsx
-// FIXED: Proper names, filtered edges, tree view for subclasses
+// ✅ HYBRID: Visual grouping + Full connectivity for ALL nodes
 
-import React, { useCallback, useMemo, useEffect, useRef } from 'react';
+import React, { useCallback, useMemo, useEffect, useRef, useState } from 'react';
 import ReactFlow, {
   Node,
   Edge,
@@ -36,6 +36,7 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Alert,
 } from '@mui/material';
 import {
   ZoomIn,
@@ -69,6 +70,7 @@ interface LineageCanvasProps {
   onEdgeClick?: (edge: Edge) => void;
   highlightedNodes?: string[];
   highlightedEdges?: string[];
+  onRefresh?: () => void;
 }
 
 // ============================================
@@ -96,7 +98,6 @@ function buildHierarchyTree(
   const parentMap = new Map<string, string>();
   const childrenMap = new Map<string, string[]>();
 
-  // Build parent-child relationships from HAS_SUBCLASS edges
   edges.forEach((edge) => {
     const edgeType = (edge.type || '').toLowerCase();
     const edgeLabel = (edge.label || '').toLowerCase();
@@ -111,7 +112,6 @@ function buildHierarchyTree(
     }
   });
 
-  // Also build from parent_id in nodes
   nodes.forEach((node) => {
     if (node.parent_id) {
       parentMap.set(node.id, node.parent_id);
@@ -124,7 +124,6 @@ function buildHierarchyTree(
     }
   });
 
-  // Recursive function to build hierarchy node
   const buildNode = (nodeId: string, processedIds: Set<string>): HierarchyNode | null => {
     if (processedIds.has(nodeId)) return null;
     processedIds.add(nodeId);
@@ -137,12 +136,9 @@ function buildHierarchyTree(
       .map((childId) => buildNode(childId, new Set(processedIds)))
       .filter((child): child is HierarchyNode => child !== null);
 
-    // Extract attributes safely
     let attributes: Attribute[] = [];
     if (graphNode.attributes && Array.isArray(graphNode.attributes)) {
       attributes = graphNode.attributes;
-    } else if (graphNode.data?.attributes && Array.isArray(graphNode.data.attributes)) {
-      attributes = graphNode.data.attributes;
     }
 
     return {
@@ -160,7 +156,6 @@ function buildHierarchyTree(
     };
   };
 
-  // Build hierarchy for all nodes
   nodes.forEach((node) => {
     if (!parentMap.has(node.id)) {
       const hierarchyNode = buildNode(node.id, new Set());
@@ -173,56 +168,119 @@ function buildHierarchyTree(
   return hierarchyMap;
 }
 
+// ✅ CRITICAL: ALL nodes become React Flow nodes, positioned intelligently
 function convertToFlowNodes(
   lineageNodes: LineageGraphNode[],
   hierarchyData: Map<string, HierarchyNode>,
   highlightedNodes: string[] = [],
   onAttributeClick?: (attributeId: string, nodeId: string) => void
 ): Node[] {
-  // Filter out subclasses - they'll be shown in tree view
-  const rootNodes = lineageNodes.filter(node => !node.parent_id);
+  const nodes: Node[] = [];
+  const processedIds = new Set<string>();
   
-  return rootNodes.map((node, index) => {
-    const hierarchy = hierarchyData.get(node.id);
-
-    const flowNode: Node = {
-      id: node.id,
+  let rootXOffset = 0;
+  const ROOT_SPACING_X = 500;
+  const LEVEL_OFFSET_X = 80;
+  const LEVEL_OFFSET_Y = 250;
+  
+  // Process root nodes and their hierarchies
+  lineageNodes.filter(n => !n.parent_id).forEach((rootNode) => {
+    const hierarchy = hierarchyData.get(rootNode.id);
+    
+    // Add root node
+    nodes.push({
+      id: rootNode.id,
       type: 'class',
-      position: node.position || { x: index * 400, y: index * 200 },
+      position: rootNode.position || { x: rootXOffset, y: 0 },
       data: {
-        id: node.id,
-        name: node.name || (node as any).label || 'Unknown',
-        label: node.display_name || node.name || (node as any).label || 'Unknown',
-        type: node.type,
-        attributes: node.attributes || [],
-        instance_count: node.instance_count,
-        collapsed: node.collapsed !== false,
-        highlighted: highlightedNodes.includes(node.id),
-        selected: node.selected || false,
-        has_upstream: node.has_upstream || false,
-        has_downstream: node.has_downstream || false,
-        level: node.level || 0,
-        hierarchy: hierarchy,
+        id: rootNode.id,
+        name: rootNode.display_name || rootNode.name || 'Unknown',
+        label: rootNode.display_name || rootNode.name || 'Unknown',
+        type: 'class',
+        attributes: rootNode.attributes || [],
+        instance_count: rootNode.instance_count,
+        collapsed: false,
+        highlighted: highlightedNodes.includes(rootNode.id),
+        selected: false,
+        level: 0,
+        hierarchy: hierarchy,  // Pass for visual indicator
+        isStandaloneNode: true,  // ✅ Flag to show it's a separate node
         onAttributeClick: onAttributeClick
-          ? (attrId: string) => onAttributeClick(attrId, node.id)
+          ? (attrId: string) => onAttributeClick(attrId, rootNode.id)
           : undefined,
       },
-    };
-
-    return flowNode;
+    });
+    
+    processedIds.add(rootNode.id);
+    
+    // ✅ Add all descendants as separate nodes with smart positioning
+    if (hierarchy) {
+      const addDescendants = (parent: HierarchyNode, baseX: number, currentY: number): number => {
+        let yOffset = currentY;
+        
+        parent.children.forEach((child) => {
+          if (processedIds.has(child.id)) return;
+          
+          const childX = baseX + (child.level * LEVEL_OFFSET_X);
+          const childY = yOffset;
+          
+          nodes.push({
+            id: child.id,
+            type: 'class',
+            position: { x: childX, y: childY },
+            data: {
+              id: child.id,
+              name: child.display_name || child.name,
+              label: child.display_name || child.name,
+              type: 'subclass',
+              attributes: child.attributes || [],
+              instance_count: child.instance_count,
+              collapsed: false,
+              highlighted: highlightedNodes.includes(child.id),
+              selected: false,
+              level: child.level,
+              hierarchy: child.children.length > 0 ? child : undefined,
+              isStandaloneNode: true,  // ✅ Flag
+              parentId: parent.id,  // For visual reference
+              onAttributeClick: onAttributeClick
+                ? (attrId: string) => onAttributeClick(attrId, child.id)
+                : undefined,
+            },
+          });
+          
+          processedIds.add(child.id);
+          yOffset += LEVEL_OFFSET_Y;
+          
+          // Recursively add children
+          if (child.children.length > 0) {
+            yOffset = addDescendants(child, baseX, yOffset);
+          }
+        });
+        
+        return yOffset;
+      };
+      
+      addDescendants(hierarchy, rootXOffset, LEVEL_OFFSET_Y);
+    }
+    
+    rootXOffset += ROOT_SPACING_X;
   });
+  
+  console.log(`✅ Created ${nodes.length} React Flow nodes (all connectable)`);
+  console.log(`   Root nodes: ${nodes.filter(n => n.data.level === 0).length}`);
+  console.log(`   Subclass nodes: ${nodes.filter(n => n.data.type === 'subclass').length}`);
+  
+  return nodes;
 }
 
 function convertToFlowEdges(
   lineageEdges: LineageGraphEdge[],
   highlightedEdges: string[] = []
 ): Edge[] {
-  // CRITICAL: Filter out HAS_SUBCLASS and HAS_CLASS edges - only show SCHEMA_REL
   const schemaRelEdges = lineageEdges.filter(edge => {
     const edgeType = (edge.type || '').toLowerCase();
     const edgeLabel = (edge.label || '').toLowerCase();
     
-    // Only include schema_relationship edges, exclude internal relationships
     return edgeType === 'schema_relationship' || 
            (edgeType !== 'hierarchy' && 
             !edgeLabel.includes('subclass') && 
@@ -260,41 +318,27 @@ export const LineageCanvas: React.FC<LineageCanvasProps> = ({
   onEdgeClick,
   highlightedNodes = [],
   highlightedEdges = [],
+  onRefresh,
 }) => {
   const { fitView, zoomIn, zoomOut } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   
-  const [relationshipDialog, setRelationshipDialog] = React.useState<{
-    open: boolean;
-    source: string | null;
-    target: string | null;
-  }>({ open: false, source: null, target: null });
-  
-  const [relationshipName, setRelationshipName] = React.useState('');
-  const [cardinality, setCardinality] = React.useState<Cardinality>(Cardinality.ONE_TO_MANY);
+  const [relationshipDialog, setRelationshipDialog] = useState(false);
+  const [pendingConnection, setPendingConnection] = useState<Connection | null>(null);
+  const [relationshipName, setRelationshipName] = useState('');
+  const [cardinality, setCardinality] = useState<Cardinality>(Cardinality.ONE_TO_MANY);
+  const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   
   const graphVersionRef = useRef<string>('');
   
-  // Build hierarchy tree from graph
   const hierarchyMap = useMemo(() => {
     if (!graph || !graph.nodes) return new Map();
-    console.log('🌳 Building hierarchy tree from graph nodes...');
-    
-    // Log nodes to debug
-    console.log('📊 Nodes:', graph.nodes.map(n => ({
-      id: n.id,
-      name: n.name,
-      label: n.label,
-      parent_id: n.parent_id
-    })));
-    
     const map = buildHierarchyTree(graph.nodes, graph.edges || []);
-    console.log('✅ Hierarchy map built:', map.size, 'root nodes');
     return map;
   }, [graph?.schema_id, graph?.nodes?.length, graph?.edges?.length]);
 
-  // Update nodes when graph changes
   useEffect(() => {
     if (!graph || !graph.nodes) {
       setNodes([]);
@@ -309,11 +353,6 @@ export const LineageCanvas: React.FC<LineageCanvasProps> = ({
     
     graphVersionRef.current = currentVersion;
     
-    console.log('🔄 Converting graph to React Flow nodes...');
-    console.log(`   Total nodes: ${graph.nodes.length}`);
-    console.log(`   Root nodes: ${graph.nodes.filter(n => !n.parent_id).length}`);
-    console.log(`   Subclass nodes: ${graph.nodes.filter(n => n.parent_id).length}`);
-    
     const flowNodes = convertToFlowNodes(
       graph.nodes,
       hierarchyMap,
@@ -321,34 +360,16 @@ export const LineageCanvas: React.FC<LineageCanvasProps> = ({
       onAttributeClick
     );
     
-    console.log(`✅ Created ${flowNodes.length} flow nodes (subclasses in tree view)`);
     setNodes(flowNodes);
   }, [graph, hierarchyMap, highlightedNodes, onAttributeClick, setNodes]);
 
-  // Update edges when graph changes
   useEffect(() => {
     if (!graph || !graph.edges) {
       setEdges([]);
       return;
     }
     
-    console.log('🔗 Processing edges...');
-    console.log(`   Total edges: ${graph.edges.length}`);
-    
-    // Log edge types
-    const edgeTypes = graph.edges.map(e => ({
-      type: e.type,
-      label: e.label,
-      source: e.source,
-      target: e.target
-    }));
-    console.log('   Edge types:', edgeTypes);
-    
     const flowEdges = convertToFlowEdges(graph.edges, highlightedEdges);
-    
-    console.log(`✅ Created ${flowEdges.length} flow edges (filtered to SCHEMA_REL only)`);
-    console.log('   Edges with labels:', flowEdges.filter(e => e.label).map(e => e.label));
-    
     setEdges(flowEdges);
   }, [graph?.edges, highlightedEdges, setEdges]);
 
@@ -372,44 +393,54 @@ export const LineageCanvas: React.FC<LineageCanvasProps> = ({
 
   const onConnect = useCallback(
     (connection: Connection) => {
-      if (!connection.source || !connection.target) return;
+      // ✅ Proper null checks for TypeScript
+      if (!connection.source || !connection.target) {
+        setError('Invalid connection: missing source or target');
+        return;
+      }
       
-      setRelationshipDialog({
-        open: true,
-        source: connection.source,
-        target: connection.target,
-      });
+      console.log('🔗 Creating connection:', connection.source, '→', connection.target);
+      
+      setPendingConnection(connection);
+      setRelationshipDialog(true);
+      setError(null);
     },
     []
   );
 
-  const handleSaveRelationship = useCallback(async () => {
-    if (!graph?.schema_id || !relationshipDialog.source || !relationshipDialog.target) {
+  const handleCreateRelationship = useCallback(async () => {
+    if (!pendingConnection || !graph) return;
+    
+    // ✅ Explicit null checks with TypeScript safety
+    const sourceId = pendingConnection.source;
+    const targetId = pendingConnection.target;
+    
+    if (!sourceId || !targetId) {
+      setError('Invalid connection: missing source or target');
       return;
     }
     
     if (!relationshipName.trim()) {
-      alert('Please enter a relationship name');
+      setError('Relationship name is required');
       return;
     }
     
+    setCreating(true);
+    setError(null);
+    
     try {
-      console.log('💾 Saving relationship to backend...');
-      
-      const newRelationship = await apiService.createRelationship(
+      const relationship = await apiService.createRelationship(
         graph.schema_id,
-        relationshipDialog.source,
-        relationshipDialog.target,
+        sourceId,
+        targetId,
         relationshipName,
         cardinality
       );
       
-      console.log('✅ Relationship saved:', newRelationship);
-      
       const newEdge: Edge = {
-        id: newRelationship.id,
-        source: relationshipDialog.source,
-        target: relationshipDialog.target,
+        id: relationship.id,
+        source: sourceId,
+        target: targetId,
         type: 'custom',
         label: relationshipName,
         data: {
@@ -425,30 +456,34 @@ export const LineageCanvas: React.FC<LineageCanvasProps> = ({
       
       setEdges((eds) => addEdge(newEdge, eds));
       
-      setRelationshipDialog({ open: false, source: null, target: null });
+      setRelationshipDialog(false);
+      setPendingConnection(null);
       setRelationshipName('');
       setCardinality(Cardinality.ONE_TO_MANY);
       
-      alert('Relationship created successfully!');
-    } catch (error) {
-      console.error('❌ Failed to save relationship:', error);
-      alert('Failed to save relationship: ' + (error as Error).message);
+      if (onRefresh) {
+        onRefresh();
+      }
+    } catch (err: any) {
+      console.error('❌ Failed to create relationship:', err);
+      setError(err.response?.data?.detail || err.message || 'Failed to create relationship');
+    } finally {
+      setCreating(false);
     }
-  }, [graph?.schema_id, relationshipDialog, relationshipName, cardinality, setEdges]);
+  }, [pendingConnection, graph, relationshipName, cardinality, setEdges, onRefresh]);
+
+  const handleCancelRelationship = useCallback(() => {
+    setRelationshipDialog(false);
+    setPendingConnection(null);
+    setRelationshipName('');
+    setCardinality(Cardinality.ONE_TO_MANY);
+    setError(null);
+  }, []);
 
   if (!graph) {
     return (
-      <Box
-        sx={{
-          height: '100%',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Typography variant="h6" color="text.secondary">
-          No lineage data available
-        </Typography>
+      <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Typography variant="h6" color="text.secondary">No lineage data available</Typography>
       </Box>
     );
   }
@@ -479,7 +514,8 @@ export const LineageCanvas: React.FC<LineageCanvasProps> = ({
           nodeColor={(node) => {
             if (node.data.highlighted) return '#ffc107';
             if (node.data.selected) return '#1976d2';
-            return '#e0e0e0';
+            if (node.data.type === 'subclass') return '#9c27b0';
+            return '#2196f3';
           }}
           nodeStrokeWidth={3}
           zoomable
@@ -490,19 +526,13 @@ export const LineageCanvas: React.FC<LineageCanvasProps> = ({
           <Stack spacing={1}>
             <ButtonGroup orientation="vertical" size="small">
               <Tooltip title="Zoom In">
-                <IconButton onClick={() => zoomIn()}>
-                  <ZoomIn />
-                </IconButton>
+                <IconButton onClick={() => zoomIn()}><ZoomIn /></IconButton>
               </Tooltip>
               <Tooltip title="Zoom Out">
-                <IconButton onClick={() => zoomOut()}>
-                  <ZoomOut />
-                </IconButton>
+                <IconButton onClick={() => zoomOut()}><ZoomOut /></IconButton>
               </Tooltip>
               <Tooltip title="Fit View">
-                <IconButton onClick={() => fitView()}>
-                  <CenterFocusStrong />
-                </IconButton>
+                <IconButton onClick={() => fitView()}><CenterFocusStrong /></IconButton>
               </Tooltip>
             </ButtonGroup>
           </Stack>
@@ -510,38 +540,36 @@ export const LineageCanvas: React.FC<LineageCanvasProps> = ({
 
         <Panel position="top-left">
           <Stack spacing={1}>
-            <Chip label={`${nodes.length} Classes`} size="small" />
+            <Chip label={`${nodes.length} Total Nodes`} size="small" />
+            <Chip 
+              label={`${nodes.filter(n => n.data.type === 'subclass').length} Subclasses`} 
+              size="small" 
+              color="secondary" 
+            />
             <Chip label={`${edges.length} Relationships`} size="small" color="primary" />
           </Stack>
         </Panel>
       </ReactFlow>
 
-      {/* Relationship Dialog */}
-      <Dialog
-        open={relationshipDialog.open}
-        onClose={() => setRelationshipDialog({ open: false, source: null, target: null })}
-        maxWidth="sm"
-        fullWidth
-      >
+      <Dialog open={relationshipDialog} onClose={handleCancelRelationship} maxWidth="sm" fullWidth>
         <DialogTitle>Create Relationship</DialogTitle>
         <DialogContent>
           <Stack spacing={3} sx={{ mt: 2 }}>
+            {error && <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>}
+            
             <TextField
               label="Relationship Name"
               value={relationshipName}
               onChange={(e) => setRelationshipName(e.target.value)}
               fullWidth
               required
-              placeholder="e.g., HAS, CONTAINS, REFERENCES"
+              autoFocus
+              placeholder="e.g., contains, references, depends_on"
             />
             
             <FormControl fullWidth>
               <InputLabel>Cardinality</InputLabel>
-              <Select
-                value={cardinality}
-                onChange={(e) => setCardinality(e.target.value as Cardinality)}
-                label="Cardinality"
-              >
+              <Select value={cardinality} onChange={(e) => setCardinality(e.target.value as Cardinality)} label="Cardinality">
                 <MenuItem value={Cardinality.ONE_TO_ONE}>One to One (1:1)</MenuItem>
                 <MenuItem value={Cardinality.ONE_TO_MANY}>One to Many (1:N)</MenuItem>
                 <MenuItem value={Cardinality.MANY_TO_ONE}>Many to One (N:1)</MenuItem>
@@ -550,24 +578,16 @@ export const LineageCanvas: React.FC<LineageCanvasProps> = ({
             </FormControl>
             
             <Typography variant="caption" color="text.secondary">
-              Source: {nodes.find(n => n.id === relationshipDialog.source)?.data.name || 'Unknown'}
+              Source: {pendingConnection?.source ? (nodes.find(n => n.id === pendingConnection.source)?.data.name || 'Unknown') : 'Not selected'}
               <br />
-              Target: {nodes.find(n => n.id === relationshipDialog.target)?.data.name || 'Unknown'}
+              Target: {pendingConnection?.target ? (nodes.find(n => n.id === pendingConnection.target)?.data.name || 'Unknown') : 'Not selected'}
             </Typography>
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button 
-            onClick={() => setRelationshipDialog({ open: false, source: null, target: null })}
-          >
-            Cancel
-          </Button>
-          <Button 
-            onClick={handleSaveRelationship} 
-            variant="contained" 
-            color="primary"
-          >
-            Create Relationship
+          <Button onClick={handleCancelRelationship}>Cancel</Button>
+          <Button onClick={handleCreateRelationship} variant="contained" disabled={creating || !relationshipName.trim()}>
+            {creating ? 'Creating...' : 'Create Relationship'}
           </Button>
         </DialogActions>
       </Dialog>
