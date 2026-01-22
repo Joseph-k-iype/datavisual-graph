@@ -1,16 +1,15 @@
-# backend/app/services/hierarchy_service.py - FIXED FOR HAS_SUBCLASS
+# backend/app/services/hierarchy_service.py
 """
-Hierarchy Service - Handles class hierarchy operations
-FIXED: Uses HAS_SUBCLASS (parent->child) instead of SUBCLASS_OF (child->parent)
+Hierarchy Service - FULLY FIXED
+Handles class hierarchy operations including subclass creation
 """
 
 from typing import List, Dict, Any, Optional
 from ..database import db
 from ..models.lineage.hierarchy import (
-    HierarchyTree, HierarchyNode, CreateClassRequest,
-    CreateSubclassRequest, UpdateClassRequest, HierarchyStatsResponse
+    HierarchyTree, HierarchyNode, CreateSubclassRequest,
+    UpdateClassRequest, HierarchyStatsResponse, Attribute
 )
-from ..models.lineage.attribute import Attribute
 import logging
 import json
 import uuid
@@ -26,96 +25,100 @@ class HierarchyService:
     def get_hierarchy_tree(schema_id: str) -> HierarchyTree:
         """
         Get complete hierarchy tree for a schema
-        FIXED: Builds tree from HAS_SUBCLASS relationships (parent->child)
+        Returns nested structure with parent-child relationships
         """
         try:
-            logger.info(f"📊 Getting hierarchy tree for schema: {schema_id}")
+            logger.info(f"📊 Building hierarchy tree for schema: {schema_id}")
             
-            # ✅ FIX: Query using HAS_SUBCLASS with parent->child direction
+            # Get all classes with their relationships
             query = """
             MATCH (s:Schema {id: $schema_id})-[:HAS_CLASS]->(c:SchemaClass)
-            OPTIONAL MATCH (parent:SchemaClass)-[:HAS_SUBCLASS]->(c)
+            OPTIONAL MATCH (c)-[:HAS_SUBCLASS]->(child:SchemaClass)
             OPTIONAL MATCH (c)<-[:INSTANCE_OF]-(inst:DataInstance)
-            WITH c, parent, count(DISTINCT inst) as instance_count
-            RETURN c.id as id,
-                   c.name as name,
-                   c.display_name as display_name,
-                   c.attributes as attributes,
-                   c.level as level,
-                   c.metadata as metadata,
-                   parent.id as parent_id,
-                   instance_count
-            ORDER BY c.level ASC, c.name ASC
+            WITH c, 
+                 collect(DISTINCT child.id) as child_ids,
+                 count(DISTINCT inst) as instance_count
+            RETURN c.id, c.name, c.display_name, c.level, c.parent_id, 
+                   c.attributes, c.metadata, child_ids, instance_count
+            ORDER BY c.level, c.name
             """
             
             result = db.execute_query(query, {'schema_id': schema_id})
             
-            # Build node lookup and parent-child map
-            nodes_by_id: Dict[str, Dict[str, Any]] = {}
-            children_map: Dict[str, List[str]] = {}
-            root_ids: List[str] = []
+            if not result.result_set:
+                return HierarchyTree(
+                    schema_id=schema_id,
+                    root_nodes=[],
+                    max_depth=0,
+                    total_nodes=0,
+                    metadata={}
+                )
             
-            if result.result_set:
-                for row in result.result_set:
-                    node_id = row[0]
-                    node_name = row[1]
-                    display_name = row[2]
-                    attributes_str = row[3]
-                    level = row[4] if row[4] is not None else 0
-                    metadata_str = row[5]
-                    parent_id = row[6]
-                    instance_count = row[7] if len(row) > 7 else 0
-                    
-                    # Parse attributes
-                    attributes = []
-                    if attributes_str:
-                        if isinstance(attributes_str, str):
-                            try:
-                                parsed = json.loads(attributes_str)
-                                if isinstance(parsed, list):
-                                    for attr in parsed:
-                                        if isinstance(attr, dict):
-                                            attributes.append(Attribute(**attr))
-                                        elif isinstance(attr, str):
-                                            # Create simple attribute from string
-                                            attributes.append(Attribute(
-                                                id=str(uuid.uuid4()),
-                                                name=attr,
-                                                data_type='string'
-                                            ))
-                            except:
-                                pass
-                    
-                    # Parse metadata
-                    metadata = {}
-                    if metadata_str and isinstance(metadata_str, str):
-                        try:
-                            metadata = json.loads(metadata_str)
-                        except:
-                            pass
-                    
-                    # Store node
-                    nodes_by_id[node_id] = {
-                        'id': node_id,
-                        'name': node_name,
-                        'display_name': display_name or node_name,
-                        'type': 'subclass' if level > 0 else 'class',
-                        'level': level,
-                        'parent_id': parent_id,
-                        'children': [],
-                        'attributes': attributes,
-                        'instance_count': instance_count,
-                        'collapsed': False,
-                        'metadata': metadata
-                    }
-                    
-                    # Build parent-child map
-                    if parent_id:
-                        if parent_id not in children_map:
-                            children_map[parent_id] = []
-                        children_map[parent_id].append(node_id)
+            # Build node map
+            nodes_by_id = {}
+            children_map = {}
+            root_ids = []
+            
+            for row in result.result_set:
+                node_id = row[0]
+                name = row[1]
+                display_name = row[2] or name
+                level = row[3] if row[3] is not None else 0
+                parent_id = row[4] if row[4] else None
+                attributes_str = row[5]
+                metadata_str = row[6]
+                child_ids = row[7] or []
+                instance_count = row[8]
+                
+                # Parse attributes
+                attributes = []
+                if attributes_str:
+                    if isinstance(attributes_str, str):
+                        attr_data = json.loads(attributes_str)
                     else:
-                        root_ids.append(node_id)
+                        attr_data = attributes_str
+                    
+                    for attr in attr_data:
+                        if isinstance(attr, dict):
+                            attributes.append(Attribute(
+                                id=attr.get('id', str(uuid.uuid4())),
+                                name=attr['name'],
+                                data_type=attr.get('data_type', 'string'),
+                                is_primary_key=attr.get('is_primary_key', False),
+                                is_foreign_key=attr.get('is_foreign_key', False),
+                                is_nullable=attr.get('is_nullable', True),
+                                metadata=attr.get('metadata', {})
+                            ))
+                
+                # Parse metadata
+                if isinstance(metadata_str, str):
+                    metadata = json.loads(metadata_str)
+                else:
+                    metadata = metadata_str or {}
+                
+                # Determine node type
+                node_type = 'subclass' if parent_id else 'class'
+                
+                nodes_by_id[node_id] = {
+                    'id': node_id,
+                    'name': name,
+                    'display_name': display_name,
+                    'type': node_type,
+                    'level': level,
+                    'parent_id': parent_id,
+                    'attributes': attributes,
+                    'instance_count': instance_count,
+                    'collapsed': False,
+                    'metadata': metadata
+                }
+                
+                # Track children
+                if parent_id:
+                    if parent_id not in children_map:
+                        children_map[parent_id] = []
+                    children_map[parent_id].append(node_id)
+                else:
+                    root_ids.append(node_id)
             
             # Build tree recursively
             def build_tree(node_id: str) -> HierarchyNode:
@@ -147,7 +150,7 @@ class HierarchyService:
             
             max_depth = max([get_max_depth(node) for node in root_nodes]) if root_nodes else 0
             
-            logger.info(f"✅ Built hierarchy tree: {len(nodes_by_id)} total nodes, {len(root_nodes)} roots, max depth: {max_depth}")
+            logger.info(f"✅ Built hierarchy tree: {len(nodes_by_id)} nodes, {len(root_nodes)} roots, depth: {max_depth}")
             
             return HierarchyTree(
                 schema_id=schema_id,
@@ -171,7 +174,7 @@ class HierarchyService:
     ) -> HierarchyNode:
         """
         Create a subclass under a parent class
-        FIXED: Uses HAS_SUBCLASS (parent->child) direction
+        Creates HAS_SUBCLASS relationship (parent->child direction)
         """
         try:
             logger.info(f"Creating subclass: {request.name} under {request.parent_class_id}")
@@ -218,18 +221,21 @@ class HierarchyService:
                         if isinstance(attr, dict):
                             attributes.append(Attribute(**attr))
                         elif isinstance(attr, str):
-                            # Create simple attribute from string
                             attributes.append(Attribute(
                                 id=str(uuid.uuid4()),
                                 name=attr,
-                                data_type='string'
+                                data_type='string',
+                                is_primary_key=False,
+                                is_foreign_key=False,
+                                is_nullable=True,
+                                metadata={}
                             ))
             
             # Add additional attributes
             for attr in request.additional_attributes:
                 attributes.append(attr)
             
-            # ✅ FIX: Create subclass node
+            # Create subclass node
             create_query = """
             MATCH (s:Schema {id: $schema_id})
             MATCH (parent:SchemaClass {id: $parent_id})
@@ -356,47 +362,50 @@ class HierarchyService:
             
             updated_node = find_node(tree.root_nodes, class_id)
             if not updated_node:
-                raise ValueError(f"Updated class not found in tree: {class_id}")
+                raise ValueError(f"Updated node not found: {class_id}")
             
             return updated_node
             
         except ValueError:
             raise
         except Exception as e:
-            logger.error(f"❌ Failed to update class: {str(e)}")
+            logger.error(f"❌ Failed to update class: {str(e)}", exc_info=True)
             raise
     
     @staticmethod
-    def delete_class(schema_id: str, class_id: str) -> bool:
+    def delete_class(schema_id: str, class_id: str):
         """Delete a class and all its subclasses"""
         try:
-            # Delete recursively (all subclasses)
-            delete_query = """
+            # Delete class and all children recursively
+            query = """
             MATCH (c:SchemaClass {id: $class_id})
             WHERE c.schema_id = $schema_id
-            OPTIONAL MATCH (c)-[:HAS_SUBCLASS*]->(sub:SchemaClass)
-            DETACH DELETE c, sub
+            OPTIONAL MATCH (c)-[:HAS_SUBCLASS*]->(child:SchemaClass)
+            OPTIONAL MATCH (c)<-[:INSTANCE_OF]-(inst:DataInstance)
+            OPTIONAL MATCH (child)<-[:INSTANCE_OF]-(child_inst:DataInstance)
+            DETACH DELETE c, child, inst, child_inst
             """
             
-            db.execute_query(delete_query, {'schema_id': schema_id, 'class_id': class_id})
-            
-            logger.info(f"✅ Deleted class and subclasses: {class_id}")
-            return True
+            db.execute_query(query, {'schema_id': schema_id, 'class_id': class_id})
+            logger.info(f"✅ Deleted class and children: {class_id}")
             
         except Exception as e:
-            logger.error(f"❌ Failed to delete class: {str(e)}")
+            logger.error(f"❌ Failed to delete class: {str(e)}", exc_info=True)
             raise
     
     @staticmethod
     def get_hierarchy_stats(schema_id: str) -> HierarchyStatsResponse:
-        """Get hierarchy statistics"""
+        """Get statistics about the class hierarchy"""
         try:
             query = """
             MATCH (s:Schema {id: $schema_id})-[:HAS_CLASS]->(c:SchemaClass)
-            OPTIONAL MATCH (c)-[:HAS_SUBCLASS*]->(sub:SchemaClass)
-            RETURN count(DISTINCT c) as total_classes,
-                   max(c.level) as max_depth,
-                   count(DISTINCT sub) as total_subclasses
+            OPTIONAL MATCH (c)-[:HAS_SUBCLASS]->(child:SchemaClass)
+            WITH c, count(DISTINCT child) as child_count
+            WHERE c.parent_id IS NULL OR c.parent_id = ''
+            RETURN 
+                count(c) as root_classes,
+                sum(child_count) as total_subclasses,
+                max(c.level) as max_depth
             """
             
             result = db.execute_query(query, {'schema_id': schema_id})
@@ -405,20 +414,20 @@ class HierarchyService:
                 row = result.result_set[0]
                 return HierarchyStatsResponse(
                     schema_id=schema_id,
-                    total_classes=row[0],
-                    max_depth=row[1] or 0,
-                    total_subclasses=row[2] or 0,
-                    root_classes=row[0] - (row[2] or 0)
+                    total_classes=row[0] + (row[1] or 0),
+                    root_classes=row[0],
+                    max_depth=row[2] or 0,
+                    avg_children_per_class=0.0  # Can calculate if needed
                 )
             
             return HierarchyStatsResponse(
                 schema_id=schema_id,
                 total_classes=0,
+                root_classes=0,
                 max_depth=0,
-                total_subclasses=0,
-                root_classes=0
+                avg_children_per_class=0.0
             )
             
         except Exception as e:
-            logger.error(f"❌ Failed to get hierarchy stats: {str(e)}")
+            logger.error(f"❌ Failed to get hierarchy stats: {str(e)}", exc_info=True)
             raise

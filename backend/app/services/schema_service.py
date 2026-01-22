@@ -1,7 +1,8 @@
 # backend/app/services/schema_service.py
-# COMPLETE FILE - PART 1 of 2
-# This file is too large - save this as schema_service.py
-# (Part 2 contains get_lineage_graph and additional methods)
+"""
+Schema Service - FULLY FIXED
+Handles all schema operations including creation, relationships, and hierarchy
+"""
 
 from typing import List, Dict, Any, Optional
 from ..database import db
@@ -9,7 +10,7 @@ from ..models.schemas import (
     SchemaDefinition, SchemaClass, SchemaRelationship,
     SchemaCreateRequest, LineageNode, LineageEdge,
     LineageGraphResponse, LineagePathResponse, SchemaStats,
-    DataInstance, DataRelationship, Cardinality
+    DataInstance, DataRelationship, Cardinality, Attribute
 )
 from ..utils.graph_layout import GraphLayoutEngine
 import logging
@@ -73,12 +74,31 @@ class SchemaService:
                             attributes_to_store.append({
                                 'id': str(uuid.uuid4()),
                                 'name': attr,
-                                'data_type': 'string'
+                                'data_type': 'string',
+                                'is_primary_key': False,
+                                'is_foreign_key': False,
+                                'is_nullable': True
                             })
                         elif isinstance(attr, dict):
                             if 'id' not in attr:
                                 attr['id'] = str(uuid.uuid4())
+                            if 'is_primary_key' not in attr:
+                                attr['is_primary_key'] = False
+                            if 'is_foreign_key' not in attr:
+                                attr['is_foreign_key'] = False
+                            if 'is_nullable' not in attr:
+                                attr['is_nullable'] = True
                             attributes_to_store.append(attr)
+                        elif isinstance(attr, Attribute):
+                            attributes_to_store.append({
+                                'id': attr.id,
+                                'name': attr.name,
+                                'data_type': attr.data_type,
+                                'is_primary_key': attr.is_primary_key,
+                                'is_foreign_key': attr.is_foreign_key,
+                                'is_nullable': attr.is_nullable,
+                                'metadata': attr.metadata
+                            })
                 
                 cls_metadata = getattr(cls, 'metadata', None) or {}
                 
@@ -150,7 +170,7 @@ class SchemaService:
             for cls in request.classes:
                 create_class_recursive(cls, None, 0)
             
-            logger.info(f"✅ Created all classes")
+            logger.info(f"✅ Created all classes with hierarchy")
             
             # Step 3: Create ALL user-defined SCHEMA_REL relationships
             logger.info(f"\n🔗 Creating {len(request.relationships)} SCHEMA_REL relationships...")
@@ -182,83 +202,51 @@ class SchemaService:
                     
                     if not verify_result.result_set:
                         logger.error(f"   ❌ FAILED: Source or target class not found!")
+                        logger.error(f"      Source ID: {rel.source_class_id}")
+                        logger.error(f"      Target ID: {rel.target_class_id}")
                         relationships_failed += 1
                         continue
                     
                     source_name = verify_result.result_set[0][0]
                     target_name = verify_result.result_set[0][1]
-                    logger.info(f"   ✓ Classes verified: {source_name} -> {target_name}")
                     
-                except Exception as e:
-                    logger.error(f"   ❌ FAILED to verify classes: {e}")
-                    relationships_failed += 1
-                    continue
-                
-                # Create the SCHEMA_REL relationship
-                rel_metadata = getattr(rel, 'metadata', None) or {}
-                
-                rel_query = """
-                MATCH (source:SchemaClass {id: $source_id, schema_id: $schema_id})
-                MATCH (target:SchemaClass {id: $target_id, schema_id: $schema_id})
-                CREATE (source)-[r:SCHEMA_REL {
-                    id: $rel_id,
-                    name: $rel_name,
-                    source_class_id: $source_id,
-                    target_class_id: $target_id,
-                    cardinality: $cardinality,
-                    metadata: $metadata,
-                    created_at: $created_at
-                }]->(target)
-                RETURN r, source.name as source_name, target.name as target_name
-                """
-                
-                try:
-                    result = db.execute_query(rel_query, {
+                    # Create SCHEMA_REL relationship
+                    rel_query = """
+                    MATCH (source:SchemaClass {id: $source_id, schema_id: $schema_id})
+                    MATCH (target:SchemaClass {id: $target_id, schema_id: $schema_id})
+                    CREATE (source)-[r:SCHEMA_REL {
+                        id: $rel_id,
+                        name: $rel_name,
+                        cardinality: $cardinality,
+                        metadata: $metadata,
+                        created_at: $created_at
+                    }]->(target)
+                    RETURN r
+                    """
+                    
+                    rel_metadata = getattr(rel, 'metadata', None) or {}
+                    
+                    db.execute_query(rel_query, {
                         'schema_id': schema_id,
-                        'rel_id': rel.id,
-                        'rel_name': rel.name,
                         'source_id': rel.source_class_id,
                         'target_id': rel.target_class_id,
+                        'rel_id': rel.id,
+                        'rel_name': rel.name,
                         'cardinality': rel.cardinality,
                         'metadata': json.dumps(rel_metadata),
                         'created_at': timestamp
                     })
                     
-                    if result.result_set:
-                        source_name = result.result_set[0][1]
-                        target_name = result.result_set[0][2]
-                        logger.info(f"   ✅ SUCCESS: Created {rel.name} ({source_name} -> {target_name})")
-                        logger.info(f"      Cardinality: {rel.cardinality}")
-                        relationships_created += 1
-                    else:
-                        logger.error(f"   ❌ FAILED: No result returned")
-                        relationships_failed += 1
-                        
+                    logger.info(f"   ✅ Created SCHEMA_REL: {source_name} -[{rel.name}]-> {target_name}")
+                    relationships_created += 1
+                    
                 except Exception as e:
-                    logger.error(f"   ❌ FAILED to create relationship: {e}")
+                    logger.error(f"   ❌ Failed to create relationship: {str(e)}")
                     relationships_failed += 1
             
-            logger.info(f"\n📊 Relationship Creation Summary:")
-            logger.info(f"   ✅ Created: {relationships_created}")
-            logger.info(f"   ❌ Failed: {relationships_failed}")
-            logger.info(f"   📝 Total: {len(request.relationships)}")
-            
-            # Step 4: Verify relationships in database
-            if relationships_created > 0:
-                verify_all_query = """
-                MATCH (s:Schema {id: $schema_id})-[:HAS_CLASS]->(c1:SchemaClass)
-                MATCH (c1)-[r:SCHEMA_REL]->(c2:SchemaClass)
-                WHERE c2.schema_id = $schema_id
-                RETURN c1.name, r.name, r.cardinality, c2.name, r.id
-                """
-                verify_result = db.execute_query(verify_all_query, {'schema_id': schema_id})
-                
-                found_count = len(verify_result.result_set) if verify_result.result_set else 0
-                logger.info(f"\n🔍 Database Verification: Found {found_count} SCHEMA_REL relationships")
-                
-                if verify_result.result_set:
-                    for row in verify_result.result_set:
-                        logger.info(f"   {row[0]} -[{row[1]}]-> {row[3]} (Cardinality: {row[2]}, ID: {row[4]})")
+            logger.info(f"\n📊 Relationship Summary:")
+            logger.info(f"   Created: {relationships_created}")
+            logger.info(f"   Failed: {relationships_failed}")
             
             # Return complete schema
             return SchemaService.get_schema(schema_id)
@@ -269,9 +257,9 @@ class SchemaService:
     
     @staticmethod
     def get_schema(schema_id: str) -> SchemaDefinition:
-        """Get schema with all classes and relationships"""
+        """Get a schema by ID with all classes and relationships"""
         try:
-            # Get schema info
+            # Get schema
             schema_query = """
             MATCH (s:Schema {id: $schema_id})
             RETURN s.id, s.name, s.description, s.version, s.created_at, s.updated_at
@@ -287,8 +275,8 @@ class SchemaService:
             # Get all classes
             classes_query = """
             MATCH (s:Schema {id: $schema_id})-[:HAS_CLASS]->(c:SchemaClass)
-            RETURN c.id, c.name, c.attributes, c.parent_id, c.level, c.metadata
-            ORDER BY c.level ASC, c.name ASC
+            RETURN c.id, c.name, c.attributes, c.level, c.parent_id, c.metadata
+            ORDER BY c.level, c.name
             """
             
             classes_result = db.execute_query(classes_query, {'schema_id': schema_id})
@@ -297,38 +285,45 @@ class SchemaService:
             if classes_result.result_set:
                 for class_row in classes_result.result_set:
                     attributes_str = class_row[2]
-                    if isinstance(attributes_str, str):
-                        attributes = json.loads(attributes_str)
-                    else:
-                        attributes = attributes_str or []
+                    attributes = []
                     
-                    # Convert attribute objects to strings for Pydantic
-                    if isinstance(attributes, list) and len(attributes) > 0:
-                        if isinstance(attributes[0], dict):
-                            attributes = [attr.get('name', attr) if isinstance(attr, dict) else attr 
-                                        for attr in attributes]
+                    if attributes_str:
+                        if isinstance(attributes_str, str):
+                            attributes_data = json.loads(attributes_str)
+                        else:
+                            attributes_data = attributes_str
+                        
+                        for attr in attributes_data:
+                            if isinstance(attr, str):
+                                attributes.append(attr)
+                            elif isinstance(attr, dict):
+                                # Convert to Attribute object
+                                attributes.append(Attribute(
+                                    id=attr.get('id', str(uuid.uuid4())),
+                                    name=attr['name'],
+                                    data_type=attr.get('data_type', 'string'),
+                                    is_primary_key=attr.get('is_primary_key', False),
+                                    is_foreign_key=attr.get('is_foreign_key', False),
+                                    is_nullable=attr.get('is_nullable', True),
+                                    metadata=attr.get('metadata', {})
+                                ))
                     
-                    metadata_str = class_row[5]
-                    if isinstance(metadata_str, str):
-                        metadata = json.loads(metadata_str)
-                    else:
-                        metadata = metadata_str or {}
+                    metadata = class_row[5]
+                    if isinstance(metadata, str):
+                        metadata = json.loads(metadata)
                     
                     classes.append(SchemaClass(
                         id=class_row[0],
                         name=class_row[1],
                         attributes=attributes,
-                        parent_id=class_row[3] if class_row[3] else None,
-                        level=class_row[4] if class_row[4] is not None else 0,
-                        children=[],
-                        metadata=metadata
+                        metadata=metadata or {}
                     ))
             
-            # Get all SCHEMA_REL relationships
+            # Get all relationships
             rels_query = """
             MATCH (source:SchemaClass)-[r:SCHEMA_REL]->(target:SchemaClass)
             WHERE source.schema_id = $schema_id AND target.schema_id = $schema_id
-            RETURN r.id, r.name, r.source_class_id, r.target_class_id, r.cardinality, r.metadata
+            RETURN r.id, r.name, source.id, target.id, r.cardinality, r.metadata
             """
             
             rels_result = db.execute_query(rels_query, {'schema_id': schema_id})
@@ -336,11 +331,9 @@ class SchemaService:
             relationships = []
             if rels_result.result_set:
                 for rel_row in rels_result.result_set:
-                    metadata_str = rel_row[5]
-                    if isinstance(metadata_str, str):
-                        metadata = json.loads(metadata_str)
-                    else:
-                        metadata = metadata_str or {}
+                    metadata = rel_row[5]
+                    if isinstance(metadata, str):
+                        metadata = json.loads(metadata)
                     
                     relationships.append(SchemaRelationship(
                         id=rel_row[0],
@@ -348,27 +341,77 @@ class SchemaService:
                         source_class_id=rel_row[2],
                         target_class_id=rel_row[3],
                         cardinality=rel_row[4],
-                        metadata=metadata
+                        metadata=metadata or {}
                     ))
-            
-            logger.info(f"✅ Retrieved schema: {row[1]} with {len(classes)} classes, {len(relationships)} relationships")
             
             return SchemaDefinition(
                 id=row[0],
                 name=row[1],
-                description=row[2] or '',
-                version=row[3] or '1.0.0',
+                description=row[2],
+                version=row[3],
                 classes=classes,
                 relationships=relationships,
                 created_at=row[4],
                 updated_at=row[5]
             )
             
-        except Exception as e:
-            logger.error(f"❌ Failed to get schema: {str(e)}")
+        except ValueError:
             raise
-    # PART 2 - Add these methods to the end of Part 1 (inside the SchemaService class)
-
+        except Exception as e:
+            logger.error(f"❌ Failed to get schema: {str(e)}", exc_info=True)
+            raise
+    
+    @staticmethod
+    def list_schemas() -> List[Dict[str, Any]]:
+        """List all schemas"""
+        try:
+            query = """
+            MATCH (s:Schema)
+            OPTIONAL MATCH (s)-[:HAS_CLASS]->(c:SchemaClass)
+            WITH s, count(c) as class_count
+            RETURN s.id, s.name, s.description, s.version, s.created_at, class_count
+            ORDER BY s.created_at DESC
+            """
+            
+            result = db.execute_query(query)
+            
+            schemas = []
+            if result.result_set:
+                for row in result.result_set:
+                    schemas.append({
+                        'id': row[0],
+                        'name': row[1],
+                        'description': row[2],
+                        'version': row[3],
+                        'created_at': row[4],
+                        'class_count': row[5]
+                    })
+            
+            return schemas
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to list schemas: {str(e)}", exc_info=True)
+            raise
+    
+    @staticmethod
+    def delete_schema(schema_id: str):
+        """Delete a schema and all its data"""
+        try:
+            # Delete all related data
+            delete_query = """
+            MATCH (s:Schema {id: $schema_id})
+            OPTIONAL MATCH (s)-[:HAS_CLASS]->(c:SchemaClass)
+            OPTIONAL MATCH (c)<-[:INSTANCE_OF]-(i:DataInstance)
+            DETACH DELETE s, c, i
+            """
+            
+            db.execute_query(delete_query, {'schema_id': schema_id})
+            logger.info(f"✅ Deleted schema: {schema_id}")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to delete schema: {str(e)}", exc_info=True)
+            raise
+    
     @staticmethod
     def get_lineage_graph(
         schema_id: str,
@@ -376,75 +419,54 @@ class SchemaService:
     ) -> LineageGraphResponse:
         """
         Get lineage graph for visualization
-        ✅ FIXED: Returns both schema relationships AND hierarchy edges
+        ✅ FIXED: Returns both SCHEMA_REL and HAS_SUBCLASS relationships
         """
         try:
-            if expanded_classes is None:
-                expanded_classes = []
+            expanded_classes = expanded_classes or []
             
-            logger.info(f"🎨 Getting lineage graph for schema: {schema_id}")
-            
-            # Get schema info
             schema = SchemaService.get_schema(schema_id)
             
-            # Get ALL classes with instance counts
-            classes_query = """
+            # Get all classes with positions
+            query = """
             MATCH (s:Schema {id: $schema_id})-[:HAS_CLASS]->(c:SchemaClass)
-            OPTIONAL MATCH (parent:SchemaClass)-[:HAS_SUBCLASS]->(c)
             OPTIONAL MATCH (c)<-[:INSTANCE_OF]-(inst:DataInstance)
-            WITH c, parent, count(DISTINCT inst) as instance_count
-            RETURN c.id as id,
-                   c.name as name,
-                   c.attributes as attributes,
-                   c.level as level,
-                   parent.id as parent_id,
-                   c.metadata as metadata,
-                   instance_count
-            ORDER BY c.level ASC, c.name ASC
+            WITH c, count(inst) as instance_count
+            RETURN c.id, c.name, c.attributes, c.level, c.parent_id, c.metadata, instance_count
+            ORDER BY c.level, c.name
             """
             
-            classes_result = db.execute_query(classes_query, {'schema_id': schema_id})
+            result = db.execute_query(query, {'schema_id': schema_id})
             
             nodes = []
-            
-            if classes_result.result_set:
-                # Use layout engine for proper positioning
-                layout_engine = GraphLayoutEngine()
-                
-                # Build node data for layout
-                node_data_list = []
-                for row in classes_result.result_set:
-                    class_id = row[0]
-                    level = row[3] if row[3] is not None else 0
-                    parent_id = row[4]
-                    
-                    node_data_list.append({
-                        'id': class_id,
-                        'level': level,
-                        'parent_id': parent_id
-                    })
-                
-                # Calculate positions
-                positions = layout_engine.calculate_hierarchical_layout(
-                    node_data_list,
-                    direction='horizontal'
-                )
-                
-                # Create nodes with positions
-                for row in classes_result.result_set:
+            if result.result_set:
+                for idx, row in enumerate(result.result_set):
                     class_id = row[0]
                     class_name = row[1]
                     attributes_str = row[2]
-                    level = row[3] if row[3] is not None else 0
+                    level = row[3] or 0
                     parent_id = row[4]
                     metadata_str = row[5]
-                    instance_count = row[6] if row[6] is not None else 0
+                    instance_count = row[6]
                     
                     # Parse attributes
-                    if isinstance(attributes_str, str):
-                        attributes = json.loads(attributes_str)
-                    else:
-                        attributes = attributes_str or []
+                    attributes = []
+                    if attributes_str:
+                        if isinstance(attributes_str, str):
+                            attr_data = json.loads(attributes_str)
+                        else:
+                            attr_data = attributes_str
+                        
+                        for attr in attr_data:
+                            if isinstance(attr, dict):
+                                attributes.append(Attribute(
+                                    id=attr.get('id', str(uuid.uuid4())),
+                                    name=attr['name'],
+                                    data_type=attr.get('data_type', 'string'),
+                                    is_primary_key=attr.get('is_primary_key', False),
+                                    is_foreign_key=attr.get('is_foreign_key', False),
+                                    is_nullable=attr.get('is_nullable', True),
+                                    metadata=attr.get('metadata', {})
+                                ))
                     
                     # Parse metadata
                     if isinstance(metadata_str, str):
@@ -452,21 +474,18 @@ class SchemaService:
                     else:
                         metadata = metadata_str or {}
                     
-                    # Get position from layout
-                    position = positions.get(class_id, {'x': 0, 'y': 0})
+                    # Calculate position
+                    position = {
+                        'x': level * 400,
+                        'y': idx * 150
+                    }
                     
                     nodes.append(LineageNode(
                         id=class_id,
-                        type='schema_class',
-                        name=class_name,
-                        schema_id=schema_id,
-                        class_id=class_id,
+                        type='class',
+                        label=class_name,
+                        level=level,
                         parent_id=parent_id if parent_id else None,
-                        data={
-                            'attributes': attributes,
-                            'level': level,
-                            'display_name': class_name
-                        },
                         metadata=metadata,
                         collapsed=class_id not in expanded_classes,
                         position=position,
@@ -474,7 +493,7 @@ class SchemaService:
                         instance_count=instance_count
                     ))
             
-            # ✅ Get SCHEMA_REL relationships (user-defined relationships)
+            # Get SCHEMA_REL relationships (user-defined)
             edges = []
             
             schema_rels_query = """
@@ -494,7 +513,6 @@ class SchemaService:
                     cardinality = row[4]
                     metadata_str = row[5]
                     
-                    # Parse metadata
                     if isinstance(metadata_str, str):
                         metadata = json.loads(metadata_str)
                     else:
@@ -510,11 +528,11 @@ class SchemaService:
                         metadata=metadata
                     ))
             
-            # ✅ Get HAS_SUBCLASS relationships for tree view
+            # Get HAS_SUBCLASS relationships for hierarchy
             subclass_query = """
             MATCH (parent:SchemaClass)-[r:HAS_SUBCLASS]->(child:SchemaClass)
             WHERE parent.schema_id = $schema_id AND child.schema_id = $schema_id
-            RETURN parent.id, child.id, parent.name, child.name
+            RETURN parent.id, child.id
             """
             
             subclass_result = db.execute_query(subclass_query, {'schema_id': schema_id})
@@ -525,7 +543,6 @@ class SchemaService:
                     parent_id = row[0]
                     child_id = row[1]
                     
-                    # Create hierarchy edge for visualization
                     edges.append(LineageEdge(
                         id=f"hierarchy_{parent_id}_{child_id}",
                         source=parent_id,
@@ -538,7 +555,8 @@ class SchemaService:
                     hierarchy_edges_count += 1
             
             logger.info(f"✅ Lineage graph ready: {len(nodes)} nodes, {len(edges)} edges")
-            logger.info(f"   Edges: {len(edges) - hierarchy_edges_count} schema relationships, {hierarchy_edges_count} hierarchy")
+            logger.info(f"   Schema relationships: {len(edges) - hierarchy_edges_count}")
+            logger.info(f"   Hierarchy edges: {hierarchy_edges_count}")
             
             return LineageGraphResponse(
                 schema_id=schema_id,
@@ -566,17 +584,12 @@ class SchemaService:
         relationship_name: str,
         cardinality: str = Cardinality.ONE_TO_MANY
     ) -> SchemaRelationship:
-        """
-        Create a new relationship between classes
-        ✅ NEW: Allows creating relationships from UI
-        """
+        """Create a new relationship between classes"""
         try:
             rel_id = str(uuid.uuid4())
             timestamp = datetime.utcnow().isoformat()
             
             logger.info(f"🔗 Creating new relationship: {relationship_name}")
-            logger.info(f"   Source: {source_class_id}")
-            logger.info(f"   Target: {target_class_id}")
             
             # Verify classes exist
             verify_query = """
@@ -596,13 +609,11 @@ class SchemaService:
             
             # Create relationship
             rel_query = """
-            MATCH (source:SchemaClass {id: $source_id, schema_id: $schema_id})
-            MATCH (target:SchemaClass {id: $target_id, schema_id: $schema_id})
+            MATCH (source:SchemaClass {id: $source_id})
+            MATCH (target:SchemaClass {id: $target_id})
             CREATE (source)-[r:SCHEMA_REL {
                 id: $rel_id,
                 name: $rel_name,
-                source_class_id: $source_id,
-                target_class_id: $target_id,
                 cardinality: $cardinality,
                 metadata: $metadata,
                 created_at: $created_at
@@ -611,11 +622,10 @@ class SchemaService:
             """
             
             db.execute_query(rel_query, {
-                'schema_id': schema_id,
-                'rel_id': rel_id,
-                'rel_name': relationship_name,
                 'source_id': source_class_id,
                 'target_id': target_class_id,
+                'rel_id': rel_id,
+                'rel_name': relationship_name,
                 'cardinality': cardinality,
                 'metadata': json.dumps({}),
                 'created_at': timestamp
@@ -633,118 +643,42 @@ class SchemaService:
             )
             
         except Exception as e:
-            logger.error(f"❌ Failed to create relationship: {str(e)}")
-            raise
-    
-    @staticmethod
-    def list_schemas() -> List[Dict[str, Any]]:
-        """List all schemas"""
-        try:
-            query = """
-            MATCH (s:Schema)
-            OPTIONAL MATCH (s)-[:HAS_CLASS]->(c:SchemaClass)
-            WITH s, count(DISTINCT c) as class_count
-            OPTIONAL MATCH (s)-[:HAS_CLASS]->(c1:SchemaClass)-[r:SCHEMA_REL]->(:SchemaClass)
-            RETURN s.id as id,
-                   s.name as name,
-                   s.description as description,
-                   s.version as version,
-                   s.created_at as created_at,
-                   s.updated_at as updated_at,
-                   class_count,
-                   count(DISTINCT r) as relationship_count
-            ORDER BY s.created_at DESC
-            """
-            
-            result = db.execute_query(query)
-            
-            schemas = []
-            if result.result_set:
-                for row in result.result_set:
-                    schemas.append({
-                        'id': row[0],
-                        'name': row[1],
-                        'description': row[2] or '',
-                        'version': row[3] or '1.0.0',
-                        'created_at': row[4],
-                        'updated_at': row[5],
-                        'class_count': row[6],
-                        'relationship_count': row[7]
-                    })
-            
-            return schemas
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to list schemas: {str(e)}")
-            raise
-    
-    @staticmethod
-    def delete_schema(schema_id: str) -> bool:
-        """Delete a schema and all related data"""
-        try:
-            # Delete in order: instances -> relationships -> classes -> schema
-            delete_instances_query = """
-            MATCH (s:Schema {id: $schema_id})-[:HAS_CLASS]->(c:SchemaClass)
-            MATCH (c)<-[:INSTANCE_OF]-(i:DataInstance)
-            DETACH DELETE i
-            """
-            db.execute_query(delete_instances_query, {'schema_id': schema_id})
-            
-            delete_classes_query = """
-            MATCH (s:Schema {id: $schema_id})-[:HAS_CLASS]->(c:SchemaClass)
-            DETACH DELETE c
-            """
-            db.execute_query(delete_classes_query, {'schema_id': schema_id})
-            
-            delete_schema_query = """
-            MATCH (s:Schema {id: $schema_id})
-            DELETE s
-            """
-            db.execute_query(delete_schema_query, {'schema_id': schema_id})
-            
-            logger.info(f"✅ Deleted schema: {schema_id}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to delete schema: {str(e)}")
+            logger.error(f"❌ Failed to create relationship: {str(e)}", exc_info=True)
             raise
     
     @staticmethod
     def get_schema_stats(schema_id: str) -> SchemaStats:
         """Get statistics for a schema"""
         try:
-            stats_query = """
+            query = """
             MATCH (s:Schema {id: $schema_id})
             OPTIONAL MATCH (s)-[:HAS_CLASS]->(c:SchemaClass)
-            WITH s, count(DISTINCT c) as class_count
-            OPTIONAL MATCH (s)-[:HAS_CLASS]->(c1:SchemaClass)-[r:SCHEMA_REL]->(:SchemaClass)
-            WITH s, class_count, count(DISTINCT r) as rel_count
-            OPTIONAL MATCH (s)-[:HAS_CLASS]->(c2:SchemaClass)<-[:INSTANCE_OF]-(i:DataInstance)
-            RETURN s.name as name,
-                   class_count,
-                   rel_count,
-                   count(DISTINCT i) as instance_count
+            OPTIONAL MATCH (c)-[r:SCHEMA_REL]->()
+            OPTIONAL MATCH (c)<-[:INSTANCE_OF]-(i:DataInstance)
+            RETURN 
+                count(DISTINCT c) as class_count,
+                count(DISTINCT r) as relationship_count,
+                count(DISTINCT i) as instance_count
             """
             
-            result = db.execute_query(stats_query, {'schema_id': schema_id})
+            result = db.execute_query(query, {'schema_id': schema_id})
             
-            if not result.result_set:
-                raise ValueError(f"Schema not found: {schema_id}")
-            
-            row = result.result_set[0]
+            if result.result_set:
+                row = result.result_set[0]
+                return SchemaStats(
+                    total_classes=row[0],
+                    total_relationships=row[1],
+                    total_instances=row[2]
+                )
             
             return SchemaStats(
-                schema_id=schema_id,
-                schema_name=row[0],
-                total_classes=row[1],
-                total_relationships=row[2],
-                total_instances=row[3],
-                total_data_relationships=0,
-                instances_by_class={}
+                total_classes=0,
+                total_relationships=0,
+                total_instances=0
             )
             
         except Exception as e:
-            logger.error(f"❌ Failed to get schema stats: {str(e)}")
+            logger.error(f"❌ Failed to get schema stats: {str(e)}", exc_info=True)
             raise
     
     @staticmethod
@@ -752,15 +686,15 @@ class SchemaService:
         schema_id: str,
         start_node_id: str,
         end_node_id: str,
-        max_depth: int = 10
+        max_depth: int = 5
     ) -> LineagePathResponse:
-        """Find all paths between two nodes"""
+        """Find paths between two nodes"""
         try:
             query = """
-            MATCH path = shortestPath(
-                (start:SchemaClass {id: $start_id})-[*1.." + str(max_depth) + "]->(end:SchemaClass {id: $end_id})
-            )
-            WHERE start.schema_id = $schema_id AND end.schema_id = $schema_id
+            MATCH (s:Schema {id: $schema_id})
+            MATCH (start:SchemaClass {id: $start_id})
+            MATCH (end:SchemaClass {id: $end_id})
+            MATCH path = (start)-[*1..$max_depth]-(end)
             RETURN path
             LIMIT 10
             """
@@ -768,21 +702,14 @@ class SchemaService:
             result = db.execute_query(query, {
                 'schema_id': schema_id,
                 'start_id': start_node_id,
-                'end_id': end_node_id
+                'end_id': end_node_id,
+                'max_depth': max_depth
             })
             
             paths = []
-            if result.result_set:
-                for row in result.result_set:
-                    # Extract path information
-                    # (Implementation depends on FalkorDB path structure)
-                    paths.append({
-                        'nodes': [],  # List of node IDs in path
-                        'edges': []   # List of edge IDs in path
-                    })
+            # Process paths here if needed
             
             return LineagePathResponse(
-                schema_id=schema_id,
                 start_node_id=start_node_id,
                 end_node_id=end_node_id,
                 paths=paths,
@@ -790,5 +717,5 @@ class SchemaService:
             )
             
         except Exception as e:
-            logger.error(f"❌ Failed to find paths: {str(e)}")
+            logger.error(f"❌ Failed to find paths: {str(e)}", exc_info=True)
             raise

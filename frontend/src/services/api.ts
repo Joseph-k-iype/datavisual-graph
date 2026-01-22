@@ -1,4 +1,5 @@
-// frontend/src/services/api.ts - COMPLETE FILE
+// frontend/src/services/api.ts
+// COMPLETE FIXED VERSION - ALL METHODS INCLUDING createSubclass
 
 import axios, { AxiosInstance } from 'axios';
 import { 
@@ -23,7 +24,7 @@ class APIService {
       timeout: 60000, // 60 seconds
     });
 
-    // Add request interceptor for logging
+    // Request interceptor
     this.client.interceptors.request.use(
       (config) => {
         console.log(`🌐 API Request: ${config.method?.toUpperCase()} ${config.url}`);
@@ -35,7 +36,7 @@ class APIService {
       }
     );
 
-    // Add response interceptor for logging
+    // Response interceptor
     this.client.interceptors.response.use(
       (response) => {
         console.log(`✅ API Response: ${response.config.url} - ${response.status}`);
@@ -78,7 +79,79 @@ class APIService {
   }
 
   // ============================================
-  // ✅ RELATIONSHIP OPERATIONS
+  // ✅ HIERARCHY OPERATIONS (FIXED - ADDED MISSING METHOD)
+  // ============================================
+
+  async createSubclass(
+    schemaId: string,
+    parentClassId: string,
+    subclassData: {
+      name: string;
+      display_name?: string;
+      description?: string;
+      inherit_attributes?: boolean;
+      additional_attributes?: any[];
+      metadata?: any;
+    }
+  ): Promise<any> {
+    console.log('➕ Creating subclass:', subclassData.name);
+    console.log('   Parent:', parentClassId);
+    console.log('   Schema:', schemaId);
+    
+    const payload = {
+      parent_class_id: parentClassId,
+      name: subclassData.name,
+      display_name: subclassData.display_name || subclassData.name,
+      description: subclassData.description || '',
+      inherit_attributes: subclassData.inherit_attributes !== false,
+      additional_attributes: subclassData.additional_attributes || [],
+      metadata: subclassData.metadata || {}
+    };
+    
+    const response = await this.client.post(
+      `/hierarchy/${schemaId}/subclass`,
+      payload
+    );
+    
+    console.log('✅ Subclass created:', response.data.id);
+    return response.data;
+  }
+
+  async getHierarchyTree(schemaId: string): Promise<any> {
+    console.log('🌳 Fetching hierarchy tree for schema:', schemaId);
+    const response = await this.client.get(`/hierarchy/${schemaId}/tree`);
+    return response.data;
+  }
+
+  async updateClass(
+    schemaId: string,
+    classId: string,
+    updateData: {
+      name?: string;
+      display_name?: string;
+      metadata?: any;
+    }
+  ): Promise<any> {
+    console.log('✏️ Updating class:', classId);
+    const response = await this.client.patch(
+      `/hierarchy/${schemaId}/class/${classId}`,
+      updateData
+    );
+    return response.data;
+  }
+
+  async deleteClass(schemaId: string, classId: string): Promise<void> {
+    console.log('🗑️ Deleting class:', classId);
+    await this.client.delete(`/hierarchy/${schemaId}/class/${classId}`);
+  }
+
+  async getHierarchyStats(schemaId: string): Promise<any> {
+    const response = await this.client.get(`/hierarchy/${schemaId}/stats`);
+    return response.data;
+  }
+
+  // ============================================
+  // RELATIONSHIP OPERATIONS
   // ============================================
 
   async createRelationship(
@@ -89,18 +162,16 @@ class APIService {
     cardinality: Cardinality = Cardinality.ONE_TO_MANY
   ): Promise<SchemaRelationship> {
     console.log('🔗 Creating relationship:', relationshipName);
-    console.log('   Schema:', schemaId);
-    console.log('   Source:', sourceClassId);
-    console.log('   Target:', targetClassId);
-    console.log('   Cardinality:', cardinality);
+    console.log('   From:', sourceClassId);
+    console.log('   To:', targetClassId);
     
     const response = await this.client.post<SchemaRelationship>(
       `/schemas/${schemaId}/relationships`,
       {
         source_class_id: sourceClassId,
         target_class_id: targetClassId,
-        relationship_name: relationshipName,
-        cardinality: cardinality,
+        name: relationshipName,
+        cardinality: cardinality
       }
     );
     
@@ -108,19 +179,19 @@ class APIService {
     return response.data;
   }
 
+  async deleteRelationship(schemaId: string, relationshipId: string): Promise<void> {
+    await this.client.delete(`/schemas/${schemaId}/relationships/${relationshipId}`);
+  }
+
   // ============================================
-  // LINEAGE OPERATIONS
+  // LINEAGE & VISUALIZATION
   // ============================================
 
-  async getLineageGraph(
-    schemaId: string,
-    expandedClasses: string[] = []
-  ): Promise<LineageGraph> {
-    console.log('🎨 Fetching lineage graph for schema:', schemaId);
-    console.log('   Expanded classes:', expandedClasses);
+  async getLineageGraph(schemaId: string, expandedClasses: string[] = []): Promise<LineageGraph> {
+    console.log('📊 Fetching lineage graph for schema:', schemaId);
     
     const params = expandedClasses.length > 0 
-      ? { expanded_classes: expandedClasses.join(',') } 
+      ? { expanded_classes: expandedClasses.join(',') }
       : {};
     
     const response = await this.client.get<LineageGraph>(
@@ -128,10 +199,24 @@ class APIService {
       { params }
     );
     
-    console.log('✅ Lineage graph fetched:');
+    console.log('✅ Lineage graph loaded');
     console.log('   Nodes:', response.data.nodes?.length || 0);
     console.log('   Edges:', response.data.edges?.length || 0);
     
+    return response.data;
+  }
+
+  async findPaths(
+    schemaId: string,
+    startNodeId: string,
+    endNodeId: string,
+    maxDepth: number = 5
+  ): Promise<any> {
+    const response = await this.client.post(`/schemas/${schemaId}/find-paths`, {
+      start_node_id: startNodeId,
+      end_node_id: endNodeId,
+      max_depth: maxDepth
+    });
     return response.data;
   }
 
@@ -141,7 +226,7 @@ class APIService {
   }
 
   // ============================================
-  // SCHEMA INFERENCE OPERATIONS
+  // SCHEMA INFERENCE
   // ============================================
 
   async inferSchema(file: File, format: string): Promise<any> {

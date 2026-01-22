@@ -1,48 +1,64 @@
 # backend/app/models/lineage/hierarchy.py
+"""
+Hierarchy Models - FULLY FIXED
+Models for class hierarchy operations
+"""
 
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
-from .attribute import Attribute
+from enum import Enum
 
+
+# ============================================
+# ATTRIBUTE MODEL
+# ============================================
+
+class Attribute(BaseModel):
+    """Attribute definition"""
+    id: str = Field(..., description="Unique identifier")
+    name: str = Field(..., description="Attribute name")
+    data_type: str = Field(default="string", description="Data type")
+    is_primary_key: bool = Field(default=False, description="Is primary key")
+    is_foreign_key: bool = Field(default=False, description="Is foreign key")
+    is_nullable: bool = Field(default=True, description="Is nullable")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+
+
+# ============================================
+# HIERARCHY NODE MODEL
+# ============================================
 
 class HierarchyNode(BaseModel):
-    """Node in class hierarchy tree"""
+    """Node in hierarchy tree representing a class or subclass"""
     id: str = Field(..., description="Class ID")
     name: str = Field(..., description="Class name")
-    display_name: Optional[str] = Field(None, description="Display name")
-    type: str = Field(default="class", description="Node type: class, subclass")
-    level: int = Field(..., description="Hierarchy level (0 = root)")
+    display_name: str = Field(..., description="Display name")
+    type: str = Field(..., description="Node type: 'class' or 'subclass'")
+    level: int = Field(default=0, description="Hierarchy level (0 = root)")
     parent_id: Optional[str] = Field(None, description="Parent class ID")
     children: List['HierarchyNode'] = Field(default_factory=list, description="Child nodes")
     attributes: List[Attribute] = Field(default_factory=list, description="Class attributes")
-    instance_count: Optional[int] = Field(None, description="Number of instances")
-    collapsed: bool = Field(default=False, description="Is collapsed")
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    instance_count: int = Field(default=0, description="Number of data instances")
+    collapsed: bool = Field(default=False, description="UI collapse state")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
 
-# Required for forward reference
-HierarchyNode.model_rebuild()
-
+# ============================================
+# HIERARCHY TREE MODEL
+# ============================================
 
 class HierarchyTree(BaseModel):
-    """Complete hierarchy tree"""
+    """Complete hierarchy tree for a schema"""
     schema_id: str = Field(..., description="Schema ID")
-    root_nodes: List[HierarchyNode] = Field(default_factory=list, description="Root nodes")
-    max_depth: int = Field(default=0, description="Maximum tree depth")
-    total_nodes: int = Field(default=0, description="Total number of nodes")
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    root_nodes: List[HierarchyNode] = Field(..., description="Root level nodes")
+    max_depth: int = Field(..., description="Maximum depth of tree")
+    total_nodes: int = Field(..., description="Total number of nodes")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
 
-class CreateClassRequest(BaseModel):
-    """Request to create a new class"""
-    schema_id: str = Field(..., description="Schema ID")
-    name: str = Field(..., description="Class name")
-    display_name: Optional[str] = Field(None, description="Display name")
-    description: Optional[str] = Field(None, description="Description")
-    parent_class_id: Optional[str] = Field(None, description="Parent class ID (for subclasses)")
-    attributes: List[Attribute] = Field(default_factory=list, description="Initial attributes")
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-
+# ============================================
+# REQUEST MODELS
+# ============================================
 
 class CreateSubclassRequest(BaseModel):
     """Request to create a subclass"""
@@ -53,36 +69,30 @@ class CreateSubclassRequest(BaseModel):
     inherit_attributes: bool = Field(default=True, description="Inherit parent attributes")
     additional_attributes: List[Attribute] = Field(
         default_factory=list,
-        description="Additional attributes beyond inherited ones"
+        description="Additional attributes specific to this subclass"
     )
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
 
 class UpdateClassRequest(BaseModel):
     """Request to update a class"""
-    name: Optional[str] = Field(None, description="Class name")
-    display_name: Optional[str] = Field(None, description="Display name")
-    description: Optional[str] = Field(None, description="Description")
-    metadata: Optional[Dict[str, Any]] = Field(None, description="Metadata")
+    name: Optional[str] = Field(None, description="New name")
+    display_name: Optional[str] = Field(None, description="New display name")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="New metadata")
 
 
-class MoveClassRequest(BaseModel):
-    """Request to move a class in hierarchy"""
-    class_id: str = Field(..., description="Class ID to move")
-    new_parent_id: Optional[str] = Field(None, description="New parent ID (None for root)")
-    position: Optional[int] = Field(None, description="Position in new parent's children")
-
+# ============================================
+# RESPONSE MODELS
+# ============================================
 
 class HierarchyStatsResponse(BaseModel):
-    """Hierarchy statistics"""
+    """Statistics about class hierarchy"""
     schema_id: str = Field(..., description="Schema ID")
     total_classes: int = Field(..., description="Total number of classes")
-    total_subclasses: int = Field(..., description="Total number of subclasses")
-    max_depth: int = Field(..., description="Maximum hierarchy depth")
     root_classes: int = Field(..., description="Number of root classes")
-    leaf_classes: int = Field(..., description="Number of leaf classes (no children)")
+    max_depth: int = Field(..., description="Maximum hierarchy depth")
     avg_children_per_class: float = Field(..., description="Average children per class")
-    classes_by_level: Dict[int, int] = Field(
-        default_factory=dict,
-        description="Number of classes at each level"
-    )
+
+
+# Enable forward references
+HierarchyNode.model_rebuild()

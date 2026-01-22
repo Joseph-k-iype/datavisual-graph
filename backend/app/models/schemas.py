@@ -1,7 +1,7 @@
 # backend/app/models/schemas.py
 """
-Enhanced Schema Models for Data Lineage System
-Supports schema definition, data loading, and hierarchical visualization
+Complete Schema Models for Data Lineage System
+Includes all models needed for schema operations
 """
 
 from pydantic import BaseModel, Field
@@ -21,6 +21,21 @@ class Cardinality(str, Enum):
 
 
 # ============================================
+# ATTRIBUTE MODEL (CRITICAL - MUST BE HERE)
+# ============================================
+
+class Attribute(BaseModel):
+    """Attribute definition - COMPLETE MODEL"""
+    id: str = Field(..., description="Unique attribute ID")
+    name: str = Field(..., description="Attribute name")
+    data_type: str = Field(default="string", description="Data type")
+    is_primary_key: bool = Field(default=False, description="Is primary key")
+    is_foreign_key: bool = Field(default=False, description="Is foreign key")
+    is_nullable: bool = Field(default=True, description="Can be null")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+
+
+# ============================================
 # SCHEMA DEFINITION MODELS
 # ============================================
 
@@ -28,10 +43,14 @@ class SchemaClass(BaseModel):
     """Definition of a class in the schema"""
     id: str = Field(..., description="Unique identifier for the class")
     name: str = Field(..., description="Name of the class (e.g., Customer, Order)")
-    description: Optional[str] = Field(None, description="Description of the class")
-    attributes: List[str] = Field(default_factory=list, description="List of attribute names")
-    color: Optional[str] = Field(None, description="Color for visualization")
-    icon: Optional[str] = Field(None, description="Icon name for visualization")
+    attributes: List[Any] = Field(default_factory=list, description="List of attributes (can be strings or Attribute objects)")
+    parent_id: Optional[str] = Field(None, description="Parent class ID for hierarchy")
+    children: List['SchemaClass'] = Field(default_factory=list, description="Child classes")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+
+
+# Enable forward reference for SchemaClass
+SchemaClass.model_rebuild()
 
 
 class SchemaRelationship(BaseModel):
@@ -41,8 +60,7 @@ class SchemaRelationship(BaseModel):
     source_class_id: str = Field(..., description="Source class ID")
     target_class_id: str = Field(..., description="Target class ID")
     cardinality: Cardinality = Field(..., description="Cardinality of the relationship")
-    description: Optional[str] = Field(None, description="Description of the relationship")
-    bidirectional: bool = Field(default=False, description="Whether the relationship is bidirectional")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
 
 class SchemaDefinition(BaseModel):
@@ -142,17 +160,17 @@ class DataLoadResponse(BaseModel):
 # ============================================
 
 class LineageNode(BaseModel):
-    """A node in the lineage graph (can be schema class or data instance)"""
+    """A node in the lineage graph"""
     id: str = Field(..., description="Unique identifier")
-    type: Literal["schema_class", "data_instance"] = Field(..., description="Type of node")
-    name: str = Field(..., description="Display name")
-    schema_id: Optional[str] = Field(None, description="Schema ID if applicable")
-    class_id: Optional[str] = Field(None, description="Class ID if applicable")
-    parent_id: Optional[str] = Field(None, description="Parent node ID for hierarchy")
-    data: Dict[str, Any] = Field(default_factory=dict, description="Node data")
+    type: str = Field(..., description="Type of node (class, instance, etc.)")
+    label: str = Field(..., description="Display label")
+    level: int = Field(default=0, description="Hierarchy level")
+    parent_id: Optional[str] = Field(None, description="Parent node ID")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
-    collapsed: bool = Field(default=True, description="Whether children are collapsed")
-    position: Optional[Dict[str, float]] = Field(None, description="Visual position")
+    collapsed: bool = Field(default=False, description="Whether children are collapsed")
+    position: Optional[Dict[str, float]] = Field(None, description="Visual position (x, y)")
+    attributes: List[Attribute] = Field(default_factory=list, description="Node attributes")
+    instance_count: int = Field(default=0, description="Number of instances")
 
 
 class LineageEdge(BaseModel):
@@ -160,12 +178,9 @@ class LineageEdge(BaseModel):
     id: str = Field(..., description="Unique identifier")
     source: str = Field(..., description="Source node ID")
     target: str = Field(..., description="Target node ID")
-    type: Literal["schema_relationship", "data_relationship", "parent_child"] = Field(
-        ..., 
-        description="Type of edge"
-    )
+    type: str = Field(..., description="Type of edge (schema_relationship, hierarchy, etc.)")
     label: Optional[str] = Field(None, description="Edge label")
-    cardinality: Optional[Cardinality] = Field(None, description="Cardinality if applicable")
+    cardinality: Optional[str] = Field(None, description="Cardinality if applicable")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
 
@@ -175,21 +190,22 @@ class LineageGraphResponse(BaseModel):
     schema_name: str = Field(..., description="Schema name")
     nodes: List[LineageNode] = Field(..., description="All nodes in the graph")
     edges: List[LineageEdge] = Field(..., description="All edges in the graph")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Graph metadata")
 
 
 class LineagePathRequest(BaseModel):
     """Request to find lineage path"""
     start_node_id: str = Field(..., description="Starting node ID")
-    end_node_id: Optional[str] = Field(None, description="Ending node ID (optional)")
-    max_depth: int = Field(default=10, description="Maximum depth to traverse")
+    end_node_id: str = Field(..., description="Ending node ID")
+    max_depth: int = Field(default=5, description="Maximum depth to traverse")
 
 
 class LineagePathResponse(BaseModel):
     """Response with lineage path"""
+    start_node_id: str = Field(..., description="Starting node ID")
+    end_node_id: str = Field(..., description="Ending node ID")
     paths: List[List[str]] = Field(..., description="List of paths (each path is list of node IDs)")
-    highlighted_nodes: List[str] = Field(..., description="All nodes in the paths")
-    highlighted_edges: List[str] = Field(..., description="All edges in the paths")
+    total_paths: int = Field(..., description="Total number of paths found")
 
 
 # ============================================
@@ -198,13 +214,9 @@ class LineagePathResponse(BaseModel):
 
 class SchemaStats(BaseModel):
     """Statistics for a schema"""
-    schema_id: str = Field(..., description="Schema ID")
-    schema_name: str = Field(..., description="Schema name")
-    total_classes: int = Field(..., description="Number of classes")
-    total_relationships: int = Field(..., description="Number of relationships")
-    total_instances: int = Field(..., description="Number of data instances")
-    total_data_relationships: int = Field(..., description="Number of data relationships")
-    instances_by_class: Dict[str, int] = Field(..., description="Instance count per class")
+    total_classes: int = Field(default=0, description="Number of classes")
+    total_relationships: int = Field(default=0, description="Number of relationships")
+    total_instances: int = Field(default=0, description="Number of data instances")
 
 
 # ============================================
