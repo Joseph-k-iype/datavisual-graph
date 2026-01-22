@@ -1,5 +1,7 @@
-// frontend/src/App.tsx - COMPLETE FIXED VERSION
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+// frontend/src/App.tsx
+// FULLY FIXED - All TypeScript errors resolved
+
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   Box,
   AppBar,
@@ -23,7 +25,7 @@ import {
 } from '@mui/icons-material';
 
 import { LineageCanvas } from './components/lineage/LineageCanvas';
-import { HierarchyTreeComponent } from './components/lineage/HierarchyTree';
+import SchemaTreeCard from './components/schema/SchemaTreeCard';
 import { SchemaLanding } from './components/schema/SchemaLanding';
 import { SchemaBuilder } from './components/schema/SchemaBuilder';
 import { FileUploader, FileFormat } from './components/data/FileUploader';
@@ -96,7 +98,6 @@ function App() {
   const [currentSchema, setCurrentSchema] = useState<SchemaDefinition | null>(null);
   const [schemas, setSchemas] = useState<SchemaDefinition[]>([]);
   const [leftDrawerOpen, setLeftDrawerOpen] = useState(true);
-  const [rightDrawerOpen, setRightDrawerOpen] = useState(false);
   const [dataLoaderOpen, setDataLoaderOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>(undefined);
@@ -176,13 +177,17 @@ function App() {
           attributes = [];
         }
 
+        // ✅ FIXED: Use only 'name' and 'display_name' properties (no 'label')
+        const nodeName = graphNode.name || 'Unknown';
+        const displayName = graphNode.display_name || graphNode.name || 'Unknown';
+        
         return {
           id: nodeId,
-          name: graphNode.name,
-          display_name: graphNode.display_name || graphNode.name,
+          name: nodeName,
+          display_name: displayName,
           type: children.length > 0 ? ('subclass' as const) : ('class' as const),
           level,
-          parent_id: parentMap.get(nodeId),
+          parent_id: parentMap.get(nodeId) || undefined, // ✅ FIXED: Convert to undefined
           children,
           attributes: attributes,
           instance_count: graphNode.instance_count || 0,
@@ -242,7 +247,7 @@ function App() {
   const loadSchemas = useCallback(async () => {
     try {
       setLoading(true);
-    const data = await apiService.listSchemas();
+      const data = await apiService.listSchemas();
       setSchemas(data);
     } catch (error) {
       showSnackbar('Failed to load schemas', 'error');
@@ -446,7 +451,7 @@ function App() {
       };
 
       console.log('📤 Sending load request:', loadRequest);
-        const result = await apiService.loadData(loadRequest);
+      const result = await apiService.loadData(loadRequest);
       
       if (result.success) {
         showSnackbar(
@@ -478,7 +483,7 @@ function App() {
     }
   }, [view, currentSchema, loadSchemas, loadGraph]);
 
-  // Single node ID handler matching HierarchyTree expected type
+  // Single node ID handler matching tree card expected type
   const handleNodeSelect = useCallback((nodeId: string) => {
     setSelectedNodeId(nodeId);
   }, []);
@@ -511,38 +516,31 @@ function App() {
     if (view === 'visualization' && currentSchema) {
       return (
         <>
+          {/* ✅ Use SchemaTreeCard */}
           <Drawer
             anchor="left"
             open={leftDrawerOpen}
             onClose={() => setLeftDrawerOpen(false)}
             variant="persistent"
             sx={{
-              width: 300,
+              width: 350,
               flexShrink: 0,
               '& .MuiDrawer-paper': {
-                width: 300,
+                width: 350,
                 boxSizing: 'border-box',
                 top: 64,
                 height: 'calc(100% - 64px)',
+                p: 2,
               },
             }}
           >
-            <Box sx={{ p: 2, height: '100%', overflow: 'auto' }}>
-              <Typography variant="h6" gutterBottom>
-                Schema Hierarchy
-              </Typography>
-              {hierarchyTree ? (
-                <HierarchyTreeComponent
-                  hierarchy={hierarchyTree}
-                  onNodeSelect={handleNodeSelect}
-                  selectedNodeId={selectedNodeId}
-                />
-              ) : (
-                <Typography variant="body2" color="text.secondary">
-                  No hierarchy available
-                </Typography>
-              )}
-            </Box>
+            <SchemaTreeCard
+              hierarchy={hierarchyTree}
+              selectedNodeId={selectedNodeId}
+              onNodeSelect={handleNodeSelect}
+              showAttributes={true}
+              editable={false}
+            />
           </Drawer>
 
           <Box
@@ -550,8 +548,7 @@ function App() {
             sx={{
               flexGrow: 1,
               p: 0,
-              ml: leftDrawerOpen ? '300px' : 0,
-              mr: rightDrawerOpen ? '300px' : 0,
+              ml: leftDrawerOpen ? '350px' : 0,
               height: 'calc(100vh - 64px)',
               transition: 'margin 0.3s',
             }}
