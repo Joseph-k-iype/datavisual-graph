@@ -1,4 +1,5 @@
-// frontend/src/components/lineage/HierarchyTree.tsx - COMPLETE FIXED VERSION
+// frontend/src/components/lineage/HierarchyTree.tsx
+// FULLY FIXED for @mui/x-tree-view v6+
 
 import React, { useState, useCallback, useMemo } from 'react';
 import {
@@ -15,7 +16,8 @@ import {
   ListItemText,
   alpha,
 } from '@mui/material';
-import { TreeView, TreeItem } from '@mui/x-tree-view';
+import { SimpleTreeView } from '@mui/x-tree-view/SimpleTreeView';
+import { TreeItem } from '@mui/x-tree-view/TreeItem';
 import {
   ChevronRight,
   ExpandMore,
@@ -30,18 +32,16 @@ import {
   Key as KeyIcon,
   Link as LinkIcon,
 } from '@mui/icons-material';
-import { HierarchyTree, HierarchyNode, Attribute } from '../../types/lineage';
+import type { HierarchyTree as HierarchyTreeType, HierarchyNode, Attribute } from '../../types/lineage';
 
 // ============================================
 // TYPES
 // ============================================
 
 interface HierarchyTreeProps {
-  hierarchy: HierarchyTree | null;
+  hierarchy: HierarchyTreeType | null;
   selectedNodeId?: string;
   onNodeSelect?: (nodeId: string) => void;
-  onNodeExpand?: (nodeId: string) => void;
-  onNodeCollapse?: (nodeId: string) => void;
   onAttributeClick?: (attributeId: string, nodeId: string) => void;
   onAddSubclass?: (parentId: string) => void;
   onEditClass?: (nodeId: string) => void;
@@ -78,10 +78,10 @@ function flattenTree(nodes: HierarchyNode[]): HierarchyNode[] {
 
 const AttributeTreeItem: React.FC<{
   attribute: Attribute;
-  nodeId: string;
+  itemId: string;
   parentNodeId: string;
   onAttributeClick?: (attributeId: string, nodeId: string) => void;
-}> = React.memo(({ attribute, nodeId, parentNodeId, onAttributeClick }) => {
+}> = React.memo(({ attribute, itemId, parentNodeId, onAttributeClick }) => {
   const getAttributeIcon = () => {
     if (attribute.is_primary_key) {
       return <KeyIcon sx={{ fontSize: 16, color: 'warning.main' }} />;
@@ -100,7 +100,7 @@ const AttributeTreeItem: React.FC<{
 
   return (
     <TreeItem
-      nodeId={nodeId}
+      itemId={itemId}
       label={
         <Box
           sx={{
@@ -169,9 +169,9 @@ const ClassNodeLabel: React.FC<{
   onContextMenu?: (event: React.MouseEvent) => void;
 }> = React.memo(({ node, showInstanceCounts, onContextMenu }) => {
   const nodeIcon = node.children.length > 0 ? (
-    <Folder sx={{ fontSize: 20, color: 'primary.main' }} />
+    <FolderOpen sx={{ fontSize: 18, color: 'primary.main', mr: 1 }} />
   ) : (
-    <TableChart sx={{ fontSize: 20, color: 'info.main' }} />
+    <TableChart sx={{ fontSize: 18, color: 'action.active', mr: 1 }} />
   );
 
   return (
@@ -181,30 +181,26 @@ const ClassNodeLabel: React.FC<{
         alignItems: 'center',
         gap: 1,
         py: 0.5,
-        width: '100%',
       }}
       onContextMenu={onContextMenu}
     >
       {nodeIcon}
-      <Typography variant="body2" fontWeight={500} sx={{ flexGrow: 1 }}>
+      <Typography variant="body2" fontWeight={node.level === 0 ? 600 : 500}>
         {node.display_name || node.name}
       </Typography>
-      {showInstanceCounts && node.instance_count !== undefined && (
+      {node.level > 0 && (
         <Chip
+          label={`L${node.level}`}
           size="small"
-          label={`${node.instance_count} instances`}
-          color="primary"
-          variant="outlined"
-          sx={{ height: 22 }}
+          sx={{ height: 18, fontSize: '0.65rem' }}
         />
       )}
-      {node.type === 'subclass' && (
+      {showInstanceCounts && node.instance_count !== undefined && node.instance_count > 0 && (
         <Chip
+          label={`${node.instance_count} instances`}
           size="small"
-          label="Subclass"
-          color="info"
-          variant="outlined"
-          sx={{ height: 22 }}
+          color="success"
+          sx={{ height: 18, fontSize: '0.65rem' }}
         />
       )}
     </Box>
@@ -219,8 +215,6 @@ export const HierarchyTreeComponent: React.FC<HierarchyTreeProps> = ({
   hierarchy,
   selectedNodeId,
   onNodeSelect,
-  onNodeExpand,
-  onNodeCollapse,
   onAttributeClick,
   onAddSubclass,
   onEditClass,
@@ -230,7 +224,7 @@ export const HierarchyTreeComponent: React.FC<HierarchyTreeProps> = ({
   editable = false,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [expanded, setExpanded] = useState<string[]>([]);
+  const [expandedItems, setExpandedItems] = useState<string[]>([]);
   const [contextMenu, setContextMenu] = useState<NodeContextMenuState>({
     mouseX: 0,
     mouseY: 0,
@@ -238,102 +232,75 @@ export const HierarchyTreeComponent: React.FC<HierarchyTreeProps> = ({
     nodeName: null,
   });
 
-  // Filter hierarchy based on search
-  const filteredHierarchy = useMemo(() => {
-    if (!hierarchy || !searchQuery) return hierarchy;
+  const handleContextMenu = useCallback((
+    event: React.MouseEvent,
+    nodeId: string,
+    nodeName: string
+  ) => {
+    if (!editable) return;
+    event.preventDefault();
+    setContextMenu({
+      mouseX: event.clientX - 2,
+      mouseY: event.clientY - 4,
+      nodeId,
+      nodeName,
+    });
+  }, [editable]);
+
+  const handleCloseContextMenu = () => {
+    setContextMenu({ mouseX: 0, mouseY: 0, nodeId: null, nodeName: null });
+  };
+
+  const handleExpandedItemsChange = (
+    _event: React.SyntheticEvent | null,
+    itemIds: string[]
+  ) => {
+    setExpandedItems(itemIds);
+  };
+
+  const handleSelectedItemsChange = (
+    _event: React.SyntheticEvent | null,
+    itemId: string | null
+  ) => {
+    if (itemId && onNodeSelect) {
+      onNodeSelect(itemId);
+    }
+  };
+
+  // Filter nodes based on search query
+  const filteredNodes = useMemo(() => {
+    if (!hierarchy || !searchQuery.trim()) return hierarchy?.root_nodes || [];
 
     const query = searchQuery.toLowerCase();
     const allNodes = flattenTree(hierarchy.root_nodes);
     const matchingNodeIds = new Set(
       allNodes
-        .filter(
-          (node) =>
-            node.name.toLowerCase().includes(query) ||
-            node.display_name?.toLowerCase().includes(query) ||
-            node.attributes.some((attr) =>
-              attr.name.toLowerCase().includes(query)
-            )
+        .filter((node) =>
+          node.name.toLowerCase().includes(query) ||
+          node.display_name?.toLowerCase().includes(query)
         )
         .map((node) => node.id)
     );
 
-    // Include parent nodes of matches
-    const includeNode = (node: HierarchyNode): boolean => {
+    // Include ancestors of matching nodes
+    const includeAncestors = (node: HierarchyNode): boolean => {
       if (matchingNodeIds.has(node.id)) return true;
-      return node.children.some(includeNode);
+      return node.children.some(includeAncestors);
     };
 
-    const filterTree = (node: HierarchyNode): HierarchyNode | null => {
-      if (!includeNode(node)) return null;
-
-      return {
-        ...node,
-        children: node.children
-          .map(filterTree)
-          .filter((child): child is HierarchyNode => child !== null),
-      };
-    };
-
-    return {
-      ...hierarchy,
-      root_nodes: hierarchy.root_nodes
-        .map(filterTree)
-        .filter((node): node is HierarchyNode => node !== null),
-    };
+    return hierarchy.root_nodes.filter(includeAncestors);
   }, [hierarchy, searchQuery]);
 
-  // Event handlers
-  const handleToggle = useCallback(
-    (event: React.SyntheticEvent, nodeIds: string[]) => {
-      setExpanded(nodeIds);
-    },
-    []
-  );
-
-  const handleSelect = useCallback(
-    (event: React.SyntheticEvent, nodeId: string) => {
-      if (onNodeSelect) {
-        onNodeSelect(nodeId);
-      }
-    },
-    [onNodeSelect]
-  );
-
-  const handleContextMenu = useCallback(
-    (event: React.MouseEvent, nodeId: string, nodeName: string) => {
-      if (!editable) return;
-
-      event.preventDefault();
-      event.stopPropagation();
-      setContextMenu({
-        mouseX: event.clientX - 2,
-        mouseY: event.clientY - 4,
-        nodeId,
-        nodeName,
-      });
-    },
-    [editable]
-  );
-
-  const handleCloseContextMenu = useCallback(() => {
-    setContextMenu({
-      mouseX: 0,
-      mouseY: 0,
-      nodeId: null,
-      nodeName: null,
-    });
-  }, []);
-
-  // Render tree node with attributes as children - FIXED WITH PROPER KEYS
+  // Render tree node recursively
   const renderTreeNode = useCallback(
     (node: HierarchyNode): React.ReactElement => {
-      const hasAttributes = showAttributes && node.attributes.length > 0;
-      const hasChildren = node.children.length > 0;
+      const hasChildren = node.children && node.children.length > 0;
+      const hasAttributes = showAttributes && node.attributes && node.attributes.length > 0;
 
       return (
         <TreeItem
           key={node.id}
-          nodeId={node.id}
+          itemId={node.id}
           label={
             <ClassNodeLabel
               node={node}
@@ -357,19 +324,19 @@ export const HierarchyTreeComponent: React.FC<HierarchyTreeProps> = ({
             },
           }}
         >
-          {/* FIXED: Attributes as expandable tree items with proper keys */}
+          {/* Attributes as tree items */}
           {hasAttributes &&
             node.attributes.map((attr) => (
               <AttributeTreeItem
                 key={`${node.id}-attr-${attr.id}`}
+                itemId={`${node.id}-attr-${attr.id}`}
                 attribute={attr}
-                nodeId={`${node.id}-attr-${attr.id}`}
                 parentNodeId={node.id}
                 onAttributeClick={onAttributeClick}
               />
             ))}
 
-          {/* FIXED: Child class nodes with proper keys */}
+          {/* Child nodes recursively */}
           {hasChildren &&
             node.children.map((childNode) => renderTreeNode(childNode))}
         </TreeItem>
@@ -407,69 +374,41 @@ export const HierarchyTreeComponent: React.FC<HierarchyTreeProps> = ({
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {/* Header */}
-      <Box sx={{ p: 2, pb: 1 }}>
-        <Typography variant="h6" gutterBottom>
-          Schema Hierarchy
-        </Typography>
+      {/* Search bar */}
+      <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
         <TextField
-          size="small"
           fullWidth
-          placeholder="Search classes and attributes..."
+          size="small"
+          placeholder="Search classes..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
-                <Search fontSize="small" />
+                <Search />
               </InputAdornment>
             ),
           }}
         />
       </Box>
 
-      <Divider />
-
-      {/* Stats */}
-      <Box sx={{ px: 2, py: 1 }}>
-        <Stack direction="row" spacing={1}>
-          <Chip
-            size="small"
-            label={`${hierarchy.total_nodes} classes`}
-            variant="outlined"
-          />
-          <Chip
-            size="small"
-            label={`Max depth: ${hierarchy.max_depth}`}
-            variant="outlined"
-          />
-        </Stack>
-      </Box>
-
-      <Divider />
-
-      {/* Tree */}
+      {/* Tree view */}
       <Box sx={{ flexGrow: 1, overflow: 'auto', p: 2 }}>
-        <TreeView
-          expanded={expanded}
-          selected={selectedNodeId || ''}
-          onNodeToggle={handleToggle}
-          onNodeSelect={handleSelect}
-          defaultCollapseIcon={<ExpandMore />}
-          defaultExpandIcon={<ChevronRight />}
-          sx={{
-            flexGrow: 1,
-            overflowY: 'auto',
+        <SimpleTreeView
+          expandedItems={expandedItems}
+          onExpandedItemsChange={handleExpandedItemsChange}
+          selectedItems={selectedNodeId}
+          onSelectedItemsChange={handleSelectedItemsChange}
+          slots={{
+            collapseIcon: ExpandMore,
+            expandIcon: ChevronRight,
           }}
         >
-          {/* FIXED: Root nodes with proper keys */}
-          {filteredHierarchy?.root_nodes.map((rootNode) =>
-            renderTreeNode(rootNode)
-          )}
-        </TreeView>
+          {filteredNodes.map((node) => renderTreeNode(node))}
+        </SimpleTreeView>
       </Box>
 
-      {/* Context Menu */}
+      {/* Context menu */}
       {editable && (
         <Menu
           open={contextMenu.nodeId !== null}
@@ -481,51 +420,59 @@ export const HierarchyTreeComponent: React.FC<HierarchyTreeProps> = ({
               : undefined
           }
         >
-          <MenuItem
-            onClick={() => {
-              if (contextMenu.nodeId && onAddSubclass) {
-                onAddSubclass(contextMenu.nodeId);
-              }
-              handleCloseContextMenu();
-            }}
-          >
-            <ListItemIcon>
-              <Add fontSize="small" />
-            </ListItemIcon>
-            <ListItemText>Add Subclass</ListItemText>
-          </MenuItem>
-          <MenuItem
-            onClick={() => {
-              if (contextMenu.nodeId && onEditClass) {
-                onEditClass(contextMenu.nodeId);
-              }
-              handleCloseContextMenu();
-            }}
-          >
-            <ListItemIcon>
-              <Edit fontSize="small" />
-            </ListItemIcon>
-            <ListItemText>Edit Class</ListItemText>
-          </MenuItem>
-          <Divider />
-          <MenuItem
-            onClick={() => {
-              if (contextMenu.nodeId && onDeleteClass) {
-                onDeleteClass(contextMenu.nodeId);
-              }
-              handleCloseContextMenu();
-            }}
-            sx={{ color: 'error.main' }}
-          >
-            <ListItemIcon>
-              <Delete fontSize="small" color="error" />
-            </ListItemIcon>
-            <ListItemText>Delete Class</ListItemText>
-          </MenuItem>
+          {onAddSubclass && (
+            <MenuItem
+              onClick={() => {
+                if (contextMenu.nodeId) {
+                  onAddSubclass(contextMenu.nodeId);
+                }
+                handleCloseContextMenu();
+              }}
+            >
+              <ListItemIcon>
+                <Add fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>Add Subclass</ListItemText>
+            </MenuItem>
+          )}
+          {onEditClass && (
+            <MenuItem
+              onClick={() => {
+                if (contextMenu.nodeId) {
+                  onEditClass(contextMenu.nodeId);
+                }
+                handleCloseContextMenu();
+              }}
+            >
+              <ListItemIcon>
+                <Edit fontSize="small" />
+              </ListItemIcon>
+              <ListItemText>Edit Class</ListItemText>
+            </MenuItem>
+          )}
+          {onDeleteClass && (
+            <>
+              <Divider />
+              <MenuItem
+                onClick={() => {
+                  if (contextMenu.nodeId) {
+                    onDeleteClass(contextMenu.nodeId);
+                  }
+                  handleCloseContextMenu();
+                }}
+              >
+                <ListItemIcon>
+                  <Delete fontSize="small" color="error" />
+                </ListItemIcon>
+                <ListItemText>Delete Class</ListItemText>
+              </MenuItem>
+            </>
+          )}
         </Menu>
       )}
     </Box>
   );
 };
 
+export { HierarchyTreeComponent as HierarchyTree };
 export default HierarchyTreeComponent;
