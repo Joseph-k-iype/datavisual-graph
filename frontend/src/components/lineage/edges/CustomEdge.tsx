@@ -39,7 +39,7 @@ export const CustomEdge = memo<EdgeProps<CustomEdgeData>>(
     });
 
     const highlighted = data?.highlighted || false;
-    const edgeColor = highlighted ? '#ffc107' : style.stroke || '#64b5f6';
+    const edgeColor = highlighted ? '#10B981' : style.stroke || '#718096';
 
     return (
       <>
@@ -51,6 +51,7 @@ export const CustomEdge = memo<EdgeProps<CustomEdgeData>>(
             ...style,
             stroke: edgeColor,
             strokeWidth: highlighted ? 3 : (style.strokeWidth as number) || 2,
+            strokeOpacity: 1,
           }}
         />
         
@@ -63,11 +64,13 @@ export const CustomEdge = memo<EdgeProps<CustomEdgeData>>(
                 fontSize: 11,
                 fontWeight: 500,
                 pointerEvents: 'all',
-                background: 'white',
-                padding: '4px 8px',
-                borderRadius: 4,
-                border: `1px solid ${highlighted ? '#ffc107' : '#e0e0e0'}`,
-                boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                background: 'rgba(255, 255, 255, 0.98)',
+                padding: '6px 10px',
+                borderRadius: '8px',
+                border: `1.5px solid ${highlighted ? '#10B981' : '#E2E8F0'}`,
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
+                backdropFilter: 'blur(4px)',
+                transition: 'all 0.2s ease',
               }}
               className="nodrag nopan"
             >

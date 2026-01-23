@@ -50,7 +50,6 @@ const ClassNodeWithTreeView = memo<NodeProps<ClassNodeData>>(({ data }) => {
   const {
     name,
     display_name,
-    type,
     attributes = [],
     instance_count = 0,
     highlighted = false,
@@ -60,10 +59,25 @@ const ClassNodeWithTreeView = memo<NodeProps<ClassNodeData>>(({ data }) => {
 
   const [expanded, setExpanded] = useState(true);
   const [treeExpanded, setTreeExpanded] = useState<string[]>([]);
-  
+
   const displayName = display_name || name || 'Unknown';
   const hasChildren = hierarchy && hierarchy.children && hierarchy.children.length > 0;
-  
+
+  // ✅ Collect all subclass IDs for handles
+  const collectSubclassIds = (node: HierarchyNode): string[] => {
+    const ids: string[] = [node.id];
+    if (node.children) {
+      node.children.forEach(child => {
+        ids.push(...collectSubclassIds(child));
+      });
+    }
+    return ids;
+  };
+
+  const allSubclassIds = hierarchy?.children
+    ? hierarchy.children.flatMap(child => collectSubclassIds(child))
+    : [];
+
   // ✅ Render subclass tree recursively with SimpleTreeView
   const renderSubclassTree = (node: HierarchyNode): React.ReactNode => {
     const nodeDisplayName = node.display_name || node.name || 'Unknown';
@@ -174,50 +188,95 @@ const ClassNodeWithTreeView = memo<NodeProps<ClassNodeData>>(({ data }) => {
         maxWidth: 420,
         backgroundColor: 'white',
         border: highlighted
-          ? '2px solid #ffc107'
+          ? '2px solid #10B981'
           : selected
-          ? '2px solid #1976d2'
-          : '2px solid #2196f3',
-        borderRadius: 2,
+          ? '2px solid #DB0011'
+          : '1px solid #E2E8F0',
+        borderRadius: '16px',
         boxShadow: highlighted
-          ? '0 4px 12px rgba(255, 193, 7, 0.3)'
+          ? '0 8px 24px rgba(16, 185, 129, 0.25)'
           : selected
-          ? '0 4px 12px rgba(25, 118, 210, 0.3)'
-          : '0 2px 8px rgba(33, 150, 243, 0.2)',
-        transition: 'all 0.2s ease',
+          ? '0 6px 20px rgba(219, 0, 17, 0.2)'
+          : '0 4px 12px rgba(0, 0, 0, 0.08)',
+        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
         '&:hover': {
-          boxShadow: '0 4px 16px rgba(33, 150, 243, 0.3)',
+          boxShadow: '0 8px 24px rgba(0, 0, 0, 0.12)',
           transform: 'translateY(-2px)',
+          borderColor: '#DB0011',
         },
       }}
     >
-      {/* Edge handles */}
+      {/* Edge handles for root node */}
       <Handle
         type="target"
         position={Position.Left}
         style={{
-          left: -8,
+          left: -6,
           top: '50%',
-          width: 14,
-          height: 14,
-          background: '#1976d2',
+          width: 12,
+          height: 12,
+          background: '#DB0011',
           border: '2px solid white',
-          boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+          borderRadius: '50%',
+          boxShadow: '0 2px 6px rgba(219, 0, 17, 0.3)',
+          transition: 'all 0.2s ease',
         }}
       />
       <Handle
         type="source"
         position={Position.Right}
         style={{
-          right: -8,
+          right: -6,
           top: '50%',
-          width: 14,
-          height: 14,
-          background: '#1976d2',
+          width: 12,
+          height: 12,
+          background: '#DB0011',
           border: '2px solid white',
-          boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+          borderRadius: '50%',
+          boxShadow: '0 2px 6px rgba(219, 0, 17, 0.3)',
+          transition: 'all 0.2s ease',
         }}
       />
+
+      {/* ✅ Additional handles for subclasses (subtle and rounded) */}
+      {allSubclassIds.map((subclassId, index) => (
+        <React.Fragment key={`handles-${subclassId}`}>
+          <Handle
+            type="target"
+            id={subclassId}
+            position={Position.Left}
+            style={{
+              left: -4,
+              top: `${30 + (index * 10)}%`,
+              width: 8,
+              height: 8,
+              background: '#718096',
+              border: '1.5px solid white',
+              borderRadius: '50%',
+              opacity: 0.6,
+              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.15)',
+              transition: 'all 0.2s ease',
+            }}
+          />
+          <Handle
+            type="source"
+            id={subclassId}
+            position={Position.Right}
+            style={{
+              right: -4,
+              top: `${30 + (index * 10)}%`,
+              width: 8,
+              height: 8,
+              background: '#718096',
+              border: '1.5px solid white',
+              borderRadius: '50%',
+              opacity: 0.6,
+              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.15)',
+              transition: 'all 0.2s ease',
+            }}
+          />
+        </React.Fragment>
+      ))}
       
       {/* Header */}
       <Box
@@ -225,9 +284,13 @@ const ClassNodeWithTreeView = memo<NodeProps<ClassNodeData>>(({ data }) => {
           p: 1.5,
           pb: 1,
           cursor: 'pointer',
-          background: 'linear-gradient(135deg, #2196f3 0%, #1976d2 100%)',
+          background: 'linear-gradient(135deg, #DB0011 0%, #FF1A2E 100%)',
           color: 'white',
-          borderRadius: '8px 8px 0 0',
+          borderRadius: '16px 16px 0 0',
+          transition: 'all 0.2s ease',
+          '&:hover': {
+            background: 'linear-gradient(135deg, #B30009 0%, #DB0011 100%)',
+          },
         }}
         onClick={() => setExpanded(!expanded)}
       >
@@ -252,12 +315,15 @@ const ClassNodeWithTreeView = memo<NodeProps<ClassNodeData>>(({ data }) => {
               sx={{
                 height: 20,
                 fontSize: '0.65rem',
-                backgroundColor: 'rgba(255, 255, 255, 0.25)',
-                color: 'white',
+                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                color: '#DB0011',
+                borderRadius: '6px',
+                fontWeight: 600,
+                boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
               }}
             />
           )}
-          
+
           {instance_count > 0 && (
             <Chip
               label={instance_count}
@@ -266,9 +332,11 @@ const ClassNodeWithTreeView = memo<NodeProps<ClassNodeData>>(({ data }) => {
               sx={{
                 height: 20,
                 fontSize: '0.7rem',
-                backgroundColor: 'rgba(255, 255, 255, 0.25)',
-                color: 'white',
+                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                color: '#DB0011',
+                borderRadius: '6px',
                 fontWeight: 600,
+                boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
               }}
             />
           )}

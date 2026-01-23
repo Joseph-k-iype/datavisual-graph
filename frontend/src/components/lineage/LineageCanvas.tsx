@@ -1,7 +1,7 @@
 // frontend/src/components/lineage/LineageCanvas.tsx
 // ✅ FIXED: Only root nodes visible, subclasses shown INSIDE nodes
 
-import React, { useCallback, useMemo, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useEffect, useState } from 'react';
 import ReactFlow, {
   Node,
   Edge,
@@ -16,6 +16,8 @@ import ReactFlow, {
   useReactFlow,
   Connection,
   addEdge,
+  MarkerType,
+  ReactFlowProvider,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import {
@@ -66,7 +68,6 @@ import apiService from '../../services/api';
 interface LineageCanvasProps {
   graph: LineageGraph | null;
   onNodeClick?: (node: Node) => void;
-  onAttributeClick?: (attributeId: string, nodeId: string) => void;
   onEdgeClick?: (edge: Edge) => void;
   highlightedNodes?: string[];
   highlightedEdges?: string[];
@@ -85,8 +86,6 @@ const NODE_TYPES = {
 const EDGE_TYPES = {
   custom: CustomEdge,
 };
-
-const ROOT_SPACING_X = 600;
 
 // ============================================
 // HELPER FUNCTIONS
@@ -156,7 +155,7 @@ function buildHierarchyTree(
       display_name: displayName,
       type: children.length > 0 || graphNode.parent_id ? 'subclass' : 'class',
       level: graphNode.level ?? 0,
-      parent_id: graphNode.parent_id || null,
+      parent_id: graphNode.parent_id || undefined,
       children: children,
       attributes: attributes,
       instance_count: graphNode.instance_count ?? 0,
@@ -181,7 +180,6 @@ function buildHierarchyTree(
 // ✅ CRITICAL: Only create React Flow nodes for ROOT classes
 function convertToFlowNodes(
   lineageNodes: LineageGraphNode[],
-  lineageEdges: LineageGraphEdge[],
   hierarchyMap: Map<string, HierarchyNode>,
   highlightedNodes: string[] = []
 ): Node[] {
@@ -192,9 +190,12 @@ function convertToFlowNodes(
 
   console.log(`🌲 Converting ${rootNodes.length} ROOT nodes (subclasses inside)`);
 
-  let rootXOffset = 50;
+  // ✅ Calculate better positioning based on number of nodes
+  const COLS = Math.ceil(Math.sqrt(rootNodes.length));
+  const COL_SPACING = 500;
+  const ROW_SPACING = 400;
 
-  rootNodes.forEach((rootNode, rootIndex) => {
+  rootNodes.forEach((rootNode, index) => {
     const hierarchy = hierarchyMap.get(rootNode.id);
     if (!hierarchy) {
       console.warn(`⚠️ No hierarchy found for root node ${rootNode.id}`);
@@ -204,13 +205,19 @@ function convertToFlowNodes(
     const displayName = rootNode.display_name || rootNode.name || (rootNode as any).label || 'Unknown';
     const nodeName = rootNode.name || displayName;
 
+    // ✅ Calculate grid position to prevent overlaps
+    const col = index % COLS;
+    const row = Math.floor(index / COLS);
+    const xPos = col * COL_SPACING + 50;
+    const yPos = row * ROW_SPACING + 50;
+
     // ✅ Create single node for root class (children shown inside via TreeView)
     nodes.push({
       id: rootNode.id,
       type: 'class',
       position: {
-        x: rootXOffset,
-        y: 100,
+        x: xPos,
+        y: yPos,
       },
       data: {
         label: displayName,
@@ -225,9 +232,11 @@ function convertToFlowNodes(
         level: rootNode.level || 0,
         hierarchy: hierarchy,  // ✅ Pass full hierarchy including all descendants
       },
+      // ✅ Set explicit width/height to help React Flow calculate layout
+      style: {
+        width: 350,
+      },
     });
-
-    rootXOffset += ROOT_SPACING_X;
   });
 
   console.log(`✅ Created ${nodes.length} React Flow nodes (root classes only)`);
@@ -237,56 +246,137 @@ function convertToFlowNodes(
 
 function convertToFlowEdges(
   lineageEdges: LineageGraphEdge[],
+  lineageNodes: LineageGraphNode[],
   highlightedEdges: string[] = []
 ): Edge[] {
-  // Only show SCHEMA_REL edges (user-defined relationships)
+  console.log(`🔍 Processing ${lineageEdges.length} total edges from backend`);
+
+  // Build a map to find root parent for any node
+  const nodeToRootMap = new Map<string, string>();
+  lineageNodes.forEach(node => {
+    // Find the root by traversing up the parent chain
+    let currentNode = node;
+    let rootId = node.id;
+    const visited = new Set<string>();
+
+    while (currentNode.parent_id && !visited.has(currentNode.id)) {
+      visited.add(currentNode.id);
+      const parentNode = lineageNodes.find(n => n.id === currentNode.parent_id);
+      if (parentNode) {
+        rootId = parentNode.id;
+        currentNode = parentNode;
+      } else {
+        break;
+      }
+    }
+    nodeToRootMap.set(node.id, rootId);
+  });
+
   // Filter out hierarchy edges since hierarchy is shown inside nodes
   const schemaRelEdges = lineageEdges.filter(edge => {
     const edgeType = (edge.type || '').toLowerCase();
     const edgeLabel = (edge.label || '').toLowerCase();
-    
-    return edgeType === 'schema_relationship' || 
-           edgeType === 'schema_rel' ||
-           (edgeType !== 'hierarchy' && 
-            !edgeLabel.includes('subclass') && 
-            !edgeLabel.includes('has_class'));
+
+    const isSchemaRel = edgeType === 'schema_relationship' || edgeType === 'schema_rel';
+    const isNotHierarchy = edgeType !== 'hierarchy' &&
+                          !edgeLabel.includes('subclass') &&
+                          !edgeLabel.includes('has_class');
+
+    const shouldInclude = isSchemaRel || isNotHierarchy;
+
+    if (!shouldInclude) {
+      console.log(`  ⏭️ Skipping hierarchy edge: ${edge.id} (${edge.type})`);
+    }
+
+    return shouldInclude;
   });
 
-  return schemaRelEdges.map((edge) => ({
-    id: edge.id,
-    source: edge.source,
-    target: edge.target,
-    type: 'custom',
-    label: edge.label || '',
-    animated: highlightedEdges.includes(edge.id) || edge.highlighted,
-    data: {
-      type: edge.type,
-      highlighted: highlightedEdges.includes(edge.id) || edge.highlighted,
-      cardinality: edge.cardinality,
-      label: edge.label,
-    },
-    style: {
-      stroke: highlightedEdges.includes(edge.id) || edge.highlighted ? '#ffc107' : '#64b5f6',
-      strokeWidth: highlightedEdges.includes(edge.id) || edge.highlighted ? 3 : 2,
-    },
-  }));
+  console.log(`✅ Filtered to ${schemaRelEdges.length} schema relationship edges`);
+
+  return schemaRelEdges.map((edge): Edge => {
+    const isHighlighted = highlightedEdges.includes(edge.id) || edge.highlighted;
+
+    // Map subclass nodes to their root parents for edge rendering
+    const sourceRoot = nodeToRootMap.get(edge.source) || edge.source;
+    const targetRoot = nodeToRootMap.get(edge.target) || edge.target;
+
+    const sourceNode = lineageNodes.find(n => n.id === edge.source);
+    const targetNode = lineageNodes.find(n => n.id === edge.target);
+
+    // Enhanced label showing subclass relationship if applicable
+    let enhancedLabel = edge.label || '';
+    if (sourceNode && targetNode) {
+      if (edge.source !== sourceRoot || edge.target !== targetRoot) {
+        // Edge involves subclasses
+        const sourceName = sourceNode.display_name || sourceNode.name || 'Unknown';
+        const targetName = targetNode.display_name || targetNode.name || 'Unknown';
+        enhancedLabel = `${sourceName} → ${targetName}${edge.label ? ` (${edge.label})` : ''}`;
+      }
+    }
+
+    console.log(`🔗 Edge: ${edge.id} | ${edge.source} (root:${sourceRoot}) → ${edge.target} (root:${targetRoot}) | ${enhancedLabel}`);
+
+    return {
+      id: edge.id,
+      source: sourceRoot,
+      target: targetRoot,
+      sourceHandle: edge.source !== sourceRoot ? edge.source : undefined,
+      targetHandle: edge.target !== targetRoot ? edge.target : undefined,
+      type: 'custom',
+      label: enhancedLabel,
+      animated: isHighlighted,
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        width: 18,
+        height: 18,
+        color: isHighlighted ? '#10B981' : '#718096',
+      },
+      data: {
+        type: edge.type,
+        highlighted: isHighlighted,
+        cardinality: edge.cardinality,
+        label: enhancedLabel,
+        originalSource: edge.source,
+        originalTarget: edge.target,
+      },
+      style: {
+        stroke: isHighlighted ? '#10B981' : '#718096',
+        strokeWidth: isHighlighted ? 3 : 2,
+      },
+    };
+  });
 }
 
 // ============================================
 // MAIN COMPONENT
 // ============================================
 
-export const LineageCanvas: React.FC<LineageCanvasProps> = ({
+const LineageCanvas: React.FC<LineageCanvasProps> = ({
   graph,
   onNodeClick,
-  onAttributeClick,
   onEdgeClick,
   highlightedNodes = [],
   highlightedEdges = [],
   onRefresh,
 }) => {
   const { fitView, zoomIn, zoomOut } = useReactFlow();
-  
+
+  // 🔍 DEBUG: Log what data we're receiving
+  console.log('📊 LineageCanvas render:', {
+    hasGraph: !!graph,
+    nodeCount: graph?.nodes?.length || 0,
+    edgeCount: graph?.edges?.length || 0,
+    schemaId: graph?.schema_id,
+    schemaName: graph?.schema_name,
+  });
+
+  if (graph?.nodes) {
+    console.log('📝 Sample nodes:', graph.nodes.slice(0, 2));
+  }
+  if (graph?.edges) {
+    console.log('🔗 Sample edges:', graph.edges.slice(0, 2));
+  }
+
   // Build hierarchy tree
   const hierarchyMap = useMemo(() => {
     if (!graph) return new Map();
@@ -296,16 +386,29 @@ export const LineageCanvas: React.FC<LineageCanvasProps> = ({
   // Convert to React Flow format - ONLY root nodes
   const initialNodes = useMemo(() => {
     if (!graph) return [];
-    return convertToFlowNodes(graph.nodes, graph.edges || [], hierarchyMap, highlightedNodes);
+    return convertToFlowNodes(graph.nodes, hierarchyMap, highlightedNodes);
   }, [graph, hierarchyMap, highlightedNodes]);
 
   const initialEdges = useMemo(() => {
     if (!graph) return [];
-    return convertToFlowEdges(graph.edges || [], highlightedEdges);
+    return convertToFlowEdges(graph.edges || [], graph.nodes, highlightedEdges);
   }, [graph, highlightedEdges]);
+
+  // ✅ FIX: Use key prop to force re-mount when graph changes instead of useEffect
+  const graphKey = useMemo(() => graph?.schema_id || 'no-graph', [graph?.schema_id]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+
+  // ✅ NEW: State for lineage tracing
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+  // 🔍 DEBUG: Log what's being passed to ReactFlow
+  console.log('🎯 ReactFlow state:', {
+    nodesCount: nodes.length,
+    edgesCount: edges.length,
+    graphKey,
+  });
 
   // Relationship creation dialog
   const [relationshipDialog, setRelationshipDialog] = useState(false);
@@ -315,22 +418,142 @@ export const LineageCanvas: React.FC<LineageCanvasProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
-  // Update nodes/edges when graph changes
+  // ✅ FIX: Fit view only once when graph loads
   useEffect(() => {
-    setNodes(initialNodes);
-  }, [initialNodes, setNodes]);
+    if (nodes.length > 0 && graph) {
+      // Use timeout to ensure nodes are rendered before fitting view
+      const timer = setTimeout(() => {
+        fitView({ padding: 0.2, duration: 200 });
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [graph?.schema_id]); // Only run when schema changes
 
-  useEffect(() => {
-    setEdges(initialEdges);
-  }, [initialEdges, setEdges]);
+  // ✅ NEW: Trace lineage path when node is clicked
+  const traceLineagePath = useCallback((nodeId: string) => {
+    if (!graph) return;
+
+    console.log(`🔍 Tracing lineage for node: ${nodeId}`);
+
+    // Find all connected nodes (upstream and downstream)
+    const connectedNodeIds = new Set<string>();
+    const connectedEdgeIds = new Set<string>();
+
+    connectedNodeIds.add(nodeId);
+
+    // BFS to find all connected nodes through schema relationships
+    const queue: string[] = [nodeId];
+    const visited = new Set<string>();
+
+    while (queue.length > 0) {
+      const currentNodeId = queue.shift()!;
+      if (visited.has(currentNodeId)) continue;
+      visited.add(currentNodeId);
+
+      // Find edges connected to this node
+      edges.forEach(edge => {
+        const isConnected = edge.source === currentNodeId || edge.target === currentNodeId;
+        const isSchemaRel = edge.data?.type !== 'hierarchy';
+
+        if (isConnected && isSchemaRel) {
+          connectedEdgeIds.add(edge.id);
+
+          // Add the other node to the path
+          const otherNodeId = edge.source === currentNodeId ? edge.target : edge.source;
+          if (!visited.has(otherNodeId)) {
+            connectedNodeIds.add(otherNodeId);
+            queue.push(otherNodeId);
+          }
+        }
+      });
+    }
+
+    console.log(`✅ Found lineage path:`, {
+      nodes: Array.from(connectedNodeIds),
+      edges: Array.from(connectedEdgeIds),
+    });
+
+    // Update nodes to highlight the path
+    setNodes(currentNodes =>
+      currentNodes.map(n => ({
+        ...n,
+        data: {
+          ...n.data,
+          highlighted: connectedNodeIds.has(n.id),
+          selected: n.id === nodeId,
+        },
+      }))
+    );
+
+    // Update edges to highlight the path
+    setEdges(currentEdges =>
+      currentEdges.map(e => ({
+        ...e,
+        animated: connectedEdgeIds.has(e.id),
+        data: {
+          ...e.data,
+          highlighted: connectedEdgeIds.has(e.id),
+        },
+        style: {
+          ...e.style,
+          stroke: connectedEdgeIds.has(e.id) ? '#10B981' : e.style?.stroke || '#718096',
+          strokeWidth: connectedEdgeIds.has(e.id) ? 3 : e.style?.strokeWidth || 2,
+        },
+      }))
+    );
+  }, [graph, edges, setNodes, setEdges]);
+
+  // ✅ NEW: Clear lineage highlighting
+  const clearLineageHighlight = useCallback(() => {
+    console.log('🧹 Clearing lineage highlight');
+
+    setNodes(currentNodes =>
+      currentNodes.map(n => ({
+        ...n,
+        data: {
+          ...n.data,
+          highlighted: false,
+          selected: false,
+        },
+      }))
+    );
+
+    setEdges(currentEdges =>
+      currentEdges.map(e => ({
+        ...e,
+        animated: false,
+        data: {
+          ...e.data,
+          highlighted: false,
+        },
+        style: {
+          ...e.style,
+          stroke: e.data?.type === 'hierarchy' ? '#CBD5E0' : '#718096',
+          strokeWidth: e.data?.type === 'hierarchy' ? 1 : 2,
+        },
+      }))
+    );
+
+    setSelectedNodeId(null);
+  }, [setNodes, setEdges]);
 
   const handleNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
+      // Toggle lineage highlighting
+      if (selectedNodeId === node.id) {
+        // Clicking same node again clears highlight
+        clearLineageHighlight();
+      } else {
+        // Trace lineage for clicked node
+        setSelectedNodeId(node.id);
+        traceLineagePath(node.id);
+      }
+
       if (onNodeClick) {
         onNodeClick(node);
       }
     },
-    [onNodeClick]
+    [onNodeClick, selectedNodeId, traceLineagePath, clearLineageHighlight]
   );
 
   const handleEdgeClick = useCallback(
@@ -429,8 +652,9 @@ export const LineageCanvas: React.FC<LineageCanvasProps> = ({
   }
 
   return (
-    <Box sx={{ width: '100%', height: '100%', position: 'relative' }}>
+    <Box sx={{ width: '100%', height: '100%', position: 'relative', minHeight: '600px' }}>
       <ReactFlow
+        key={graphKey}
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChange}
@@ -441,24 +665,37 @@ export const LineageCanvas: React.FC<LineageCanvasProps> = ({
         nodeTypes={NODE_TYPES}
         edgeTypes={EDGE_TYPES}
         fitView
+        fitViewOptions={{ padding: 0.2, minZoom: 0.1, maxZoom: 1.5 }}
         attributionPosition="bottom-right"
         connectionLineType={ConnectionLineType.SmoothStep}
+        minZoom={0.1}
+        maxZoom={2}
         defaultEdgeOptions={{
           type: 'custom',
           animated: false,
         }}
+        proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
         <Controls showInteractive={false} />
         <MiniMap
           nodeColor={(node) => {
-            if (node.data.highlighted) return '#ffc107';
-            if (node.data.selected) return '#1976d2';
-            return '#2196f3';
+            if (node.data.highlighted) return '#10B981';
+            if (node.data.selected) return '#DB0011';
+            return '#FFFFFF';
           }}
-          nodeStrokeWidth={3}
+          nodeStrokeColor={(node) => {
+            if (node.data.highlighted) return '#059669';
+            return '#E2E8F0';
+          }}
+          nodeStrokeWidth={1.5}
           zoomable
           pannable
+          style={{
+            border: '1px solid #E2E8F0',
+            borderRadius: '12px',
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+          }}
         />
 
         <Panel position="top-right">
@@ -481,6 +718,15 @@ export const LineageCanvas: React.FC<LineageCanvasProps> = ({
           <Stack spacing={1}>
             <Chip label={`${nodes.length} Root Classes`} size="small" color="primary" />
             <Chip label={`${edges.length} Relationships`} size="small" color="primary" />
+            {selectedNodeId && (
+              <Chip
+                label="Lineage Traced (click to clear)"
+                size="small"
+                color="warning"
+                onDelete={clearLineageHighlight}
+                sx={{ cursor: 'pointer' }}
+              />
+            )}
           </Stack>
         </Panel>
       </ReactFlow>
@@ -538,4 +784,14 @@ export const LineageCanvas: React.FC<LineageCanvasProps> = ({
   );
 };
 
-export default LineageCanvas;
+// Wrapper component with ReactFlowProvider
+const LineageCanvasWithProvider: React.FC<LineageCanvasProps> = (props) => {
+  return (
+    <ReactFlowProvider>
+      <LineageCanvas {...props} />
+    </ReactFlowProvider>
+  );
+};
+
+export default LineageCanvasWithProvider;
+export { LineageCanvas };

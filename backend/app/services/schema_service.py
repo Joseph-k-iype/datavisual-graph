@@ -484,6 +484,8 @@ class SchemaService:
                         id=class_id,
                         type='class',
                         label=class_name,
+                        name=class_name,
+                        display_name=class_name,
                         level=level,
                         parent_id=parent_id if parent_id else None,
                         metadata=metadata,

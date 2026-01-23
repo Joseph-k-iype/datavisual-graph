@@ -164,6 +164,8 @@ class LineageNode(BaseModel):
     id: str = Field(..., description="Unique identifier")
     type: str = Field(..., description="Type of node (class, instance, etc.)")
     label: str = Field(..., description="Display label")
+    name: str = Field(..., description="Node name (same as label for compatibility)")
+    display_name: Optional[str] = Field(None, description="Display name for UI")
     level: int = Field(default=0, description="Hierarchy level")
     parent_id: Optional[str] = Field(None, description="Parent node ID")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")

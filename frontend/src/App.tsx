@@ -567,8 +567,7 @@ function App() {
             ) : (
               <LineageCanvas
                 graph={graph}
-                showAttributes={true}
-                showInstances={true}
+                onRefresh={() => loadGraph(currentSchema.id)}
               />
             )}
           </Box>
