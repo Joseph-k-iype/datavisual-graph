@@ -1,5 +1,5 @@
 // frontend/src/components/lineage/nodes/ClassNodeWithTreeView.tsx
-// ✅ STANDALONE: Each node independent, fully connectable, nice visual design
+// ✅ FIXED: Shows subclasses INSIDE parent node using SimpleTreeView
 
 import React, { memo, useState } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
@@ -12,12 +12,17 @@ import {
   Collapse,
   Divider,
 } from '@mui/material';
+import { SimpleTreeView } from '@mui/x-tree-view/SimpleTreeView';
+import { TreeItem } from '@mui/x-tree-view/TreeItem';
 import {
   ExpandMore,
   ChevronRight,
   Class as ClassIcon,
   AccountTree,
   Circle,
+  ViewColumn,
+  Key as KeyIcon,
+  Link as LinkIcon,
 } from '@mui/icons-material';
 
 import { HierarchyNode, Attribute } from '../../../types/lineage';
@@ -25,6 +30,7 @@ import { HierarchyNode, Attribute } from '../../../types/lineage';
 interface ClassNodeData {
   label: string;
   name: string;
+  display_name?: string;
   type: string;
   attributes?: Attribute[];
   instance_count?: number;
@@ -32,9 +38,7 @@ interface ClassNodeData {
   highlighted?: boolean;
   selected?: boolean;
   level?: number;
-  hierarchy?: HierarchyNode;
-  isStandaloneNode?: boolean;
-  parentId?: string;
+  hierarchy?: HierarchyNode;  // Full hierarchy including children
   onAttributeClick?: (attributeId: string) => void;
 }
 
@@ -44,55 +48,150 @@ interface ClassNodeData {
 
 const ClassNodeWithTreeView = memo<NodeProps<ClassNodeData>>(({ data }) => {
   const {
-    label,
     name,
+    display_name,
     type,
     attributes = [],
     instance_count = 0,
     highlighted = false,
     selected = false,
-    level = 0,
     hierarchy,
-    isStandaloneNode = false,
-    onAttributeClick,
   } = data;
 
   const [expanded, setExpanded] = useState(true);
+  const [treeExpanded, setTreeExpanded] = useState<string[]>([]);
   
-  const isSubclass = type === 'subclass' || level > 0;
+  const displayName = display_name || name || 'Unknown';
   const hasChildren = hierarchy && hierarchy.children && hierarchy.children.length > 0;
+  
+  // ✅ Render subclass tree recursively with SimpleTreeView
+  const renderSubclassTree = (node: HierarchyNode): React.ReactNode => {
+    const nodeDisplayName = node.display_name || node.name || 'Unknown';
+    const hasSubChildren = node.children && node.children.length > 0;
+
+    return (
+      <TreeItem
+        key={node.id}
+        itemId={node.id}
+        label={
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              py: 0.5,
+              gap: 0.75,
+            }}
+          >
+            <AccountTree sx={{ fontSize: 14, color: 'secondary.main' }} />
+            <Typography
+              variant="caption"
+              sx={{
+                fontWeight: 500,
+                fontSize: '0.75rem',
+              }}
+            >
+              {nodeDisplayName}
+            </Typography>
+            <Chip
+              label={`L${node.level}`}
+              size="small"
+              color="secondary"
+              sx={{
+                height: 16,
+                fontSize: '0.6rem',
+                '& .MuiChip-label': { px: 0.5 },
+              }}
+            />
+            {node.attributes && node.attributes.length > 0 && (
+              <Chip
+                label={`${node.attributes.length}`}
+                size="small"
+                variant="outlined"
+                sx={{
+                  height: 16,
+                  fontSize: '0.6rem',
+                  '& .MuiChip-label': { px: 0.5 },
+                }}
+              />
+            )}
+          </Box>
+        }
+      >
+        {/* Show attributes for this subclass */}
+        {node.attributes && node.attributes.map((attr, idx) => (
+          <TreeItem
+            key={`${node.id}-attr-${attr.id || idx}`}
+            itemId={`${node.id}-attr-${attr.id || idx}`}
+            label={
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 0.5,
+                  py: 0.25,
+                }}
+              >
+                <ViewColumn sx={{ fontSize: 11, color: 'text.secondary' }} />
+                <Typography
+                  variant="caption"
+                  sx={{
+                    fontFamily: 'monospace',
+                    fontSize: '0.7rem',
+                  }}
+                >
+                  {attr.name}
+                </Typography>
+                <Chip
+                  label={attr.data_type}
+                  size="small"
+                  sx={{
+                    height: 14,
+                    fontSize: '0.6rem',
+                    '& .MuiChip-label': { px: 0.5 },
+                  }}
+                />
+                {attr.is_primary_key && (
+                  <KeyIcon sx={{ fontSize: 10, color: 'warning.main' }} />
+                )}
+                {attr.is_foreign_key && (
+                  <LinkIcon sx={{ fontSize: 10, color: 'info.main' }} />
+                )}
+              </Box>
+            }
+          />
+        ))}
+        
+        {/* Render child subclasses recursively */}
+        {hasSubChildren && node.children.map(child => renderSubclassTree(child))}
+      </TreeItem>
+    );
+  };
   
   return (
     <Box
       sx={{
-        minWidth: isSubclass ? 220 : 280,
-        maxWidth: isSubclass ? 320 : 380,
+        minWidth: 300,
+        maxWidth: 420,
         backgroundColor: 'white',
         border: highlighted
           ? '2px solid #ffc107'
           : selected
           ? '2px solid #1976d2'
-          : isSubclass
-          ? '2px solid #9c27b0'
           : '2px solid #2196f3',
         borderRadius: 2,
         boxShadow: highlighted
           ? '0 4px 12px rgba(255, 193, 7, 0.3)'
           : selected
           ? '0 4px 12px rgba(25, 118, 210, 0.3)'
-          : isSubclass
-          ? '0 3px 10px rgba(156, 39, 176, 0.25)'
           : '0 2px 8px rgba(33, 150, 243, 0.2)',
         transition: 'all 0.2s ease',
         '&:hover': {
-          boxShadow: isSubclass 
-            ? '0 4px 16px rgba(156, 39, 176, 0.35)' 
-            : '0 4px 16px rgba(33, 150, 243, 0.3)',
+          boxShadow: '0 4px 16px rgba(33, 150, 243, 0.3)',
           transform: 'translateY(-2px)',
         },
       }}
     >
-      {/* ✅ CRITICAL: Edge handles for ALL nodes */}
+      {/* Edge handles */}
       <Handle
         type="target"
         position={Position.Left}
@@ -101,7 +200,7 @@ const ClassNodeWithTreeView = memo<NodeProps<ClassNodeData>>(({ data }) => {
           top: '50%',
           width: 14,
           height: 14,
-          background: isSubclass ? '#9c27b0' : '#1976d2',
+          background: '#1976d2',
           border: '2px solid white',
           boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
         }}
@@ -114,7 +213,7 @@ const ClassNodeWithTreeView = memo<NodeProps<ClassNodeData>>(({ data }) => {
           top: '50%',
           width: 14,
           height: 14,
-          background: isSubclass ? '#9c27b0' : '#1976d2',
+          background: '#1976d2',
           border: '2px solid white',
           boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
         }}
@@ -126,55 +225,35 @@ const ClassNodeWithTreeView = memo<NodeProps<ClassNodeData>>(({ data }) => {
           p: 1.5,
           pb: 1,
           cursor: 'pointer',
-          background: isSubclass 
-            ? 'linear-gradient(135deg, rgba(156, 39, 176, 0.12) 0%, rgba(156, 39, 176, 0.05) 100%)' 
-            : 'linear-gradient(135deg, #2196f3 0%, #1976d2 100%)',
-          color: isSubclass ? 'text.primary' : 'white',
+          background: 'linear-gradient(135deg, #2196f3 0%, #1976d2 100%)',
+          color: 'white',
           borderRadius: '8px 8px 0 0',
-          borderBottom: isSubclass ? '2px solid rgba(156, 39, 176, 0.2)' : 'none',
         }}
         onClick={() => setExpanded(!expanded)}
       >
         <Stack direction="row" alignItems="center" spacing={1}>
-          {isSubclass ? (
-            <AccountTree sx={{ fontSize: 20, color: 'secondary.main' }} />
-          ) : (
-            <ClassIcon sx={{ fontSize: 20 }} />
-          )}
+          <ClassIcon sx={{ fontSize: 20 }} />
           
           <Typography 
             variant="subtitle2" 
             sx={{ 
               fontWeight: 600, 
-              flex: 1, 
-              fontSize: isSubclass ? '0.875rem' : '0.95rem',
+              flex: 1,
+              fontSize: '0.95rem',
             }}
           >
-            {name || label}
+            {displayName}
           </Typography>
-          
-          {isSubclass && (
-            <Chip
-              label={`Level ${level}`}
-              size="small"
-              sx={{
-                height: 20,
-                fontSize: '0.65rem',
-                backgroundColor: 'secondary.main',
-                color: 'white',
-              }}
-            />
-          )}
           
           {hasChildren && (
             <Chip
-              label={`${hierarchy!.children.length} child${hierarchy!.children.length > 1 ? 'ren' : ''}`}
+              label={`${hierarchy!.children.length} subclass${hierarchy!.children.length !== 1 ? 'es' : ''}`}
               size="small"
               sx={{
                 height: 20,
                 fontSize: '0.65rem',
-                backgroundColor: isSubclass ? 'rgba(156, 39, 176, 0.3)' : 'rgba(255, 255, 255, 0.25)',
-                color: isSubclass ? 'secondary.dark' : 'white',
+                backgroundColor: 'rgba(255, 255, 255, 0.25)',
+                color: 'white',
               }}
             />
           )}
@@ -187,10 +266,8 @@ const ClassNodeWithTreeView = memo<NodeProps<ClassNodeData>>(({ data }) => {
               sx={{
                 height: 20,
                 fontSize: '0.7rem',
-                backgroundColor: isSubclass 
-                  ? 'rgba(76, 175, 80, 0.2)' 
-                  : 'rgba(255, 255, 255, 0.25)',
-                color: isSubclass ? 'success.dark' : 'white',
+                backgroundColor: 'rgba(255, 255, 255, 0.25)',
+                color: 'white',
                 fontWeight: 600,
               }}
             />
@@ -198,10 +275,7 @@ const ClassNodeWithTreeView = memo<NodeProps<ClassNodeData>>(({ data }) => {
           
           <IconButton
             size="small"
-            sx={{ 
-              p: 0, 
-              color: isSubclass ? 'text.primary' : 'white',
-            }}
+            sx={{ p: 0, color: 'white' }}
           >
             {expanded ? <ExpandMore fontSize="small" /> : <ChevronRight fontSize="small" />}
           </IconButton>
@@ -210,9 +284,9 @@ const ClassNodeWithTreeView = memo<NodeProps<ClassNodeData>>(({ data }) => {
       
       <Collapse in={expanded}>
         <Box sx={{ p: 1.5, pt: 1 }}>
-          {/* ✅ CRITICAL: Show ONLY this class's attributes (no inheritance) */}
-          {attributes && attributes.length > 0 ? (
-            <Box>
+          {/* Root class attributes */}
+          {attributes && attributes.length > 0 && (
+            <Box mb={hasChildren ? 1.5 : 0}>
               <Typography
                 variant="caption"
                 sx={{
@@ -225,7 +299,7 @@ const ClassNodeWithTreeView = memo<NodeProps<ClassNodeData>>(({ data }) => {
                   mb: 0.75,
                 }}
               >
-                {isSubclass ? 'Own Attributes' : 'Attributes'} ({attributes.length})
+                Root Attributes ({attributes.length})
               </Typography>
               <Box sx={{ 
                 backgroundColor: 'rgba(0, 0, 0, 0.02)', 
@@ -240,21 +314,12 @@ const ClassNodeWithTreeView = memo<NodeProps<ClassNodeData>>(({ data }) => {
                       alignItems: 'center',
                       py: 0.5,
                       px: 0.75,
-                      cursor: onAttributeClick && attr.id ? 'pointer' : 'default',
                       borderRadius: 0.75,
-                      transition: 'all 0.15s',
-                      '&:hover': onAttributeClick ? {
-                        backgroundColor: isSubclass 
-                          ? 'rgba(156, 39, 176, 0.08)' 
-                          : 'rgba(33, 150, 243, 0.08)',
-                        transform: 'translateX(2px)',
-                      } : {},
                     }}
-                    onClick={() => onAttributeClick && attr.id && onAttributeClick(attr.id)}
                   >
                     <Circle
                       sx={{
-                        fontSize: 7,
+                        fontSize: 6,
                         mr: 1,
                         color: attr.is_primary_key ? 'warning.main' : 
                                attr.is_foreign_key ? 'info.main' :
@@ -283,6 +348,12 @@ const ClassNodeWithTreeView = memo<NodeProps<ClassNodeData>>(({ data }) => {
                         borderColor: 'divider',
                       }}
                     />
+                    {attr.is_primary_key && (
+                      <KeyIcon sx={{ ml: 0.5, fontSize: 12, color: 'warning.main' }} />
+                    )}
+                    {attr.is_foreign_key && (
+                      <LinkIcon sx={{ ml: 0.5, fontSize: 12, color: 'info.main' }} />
+                    )}
                   </Box>
                 ))}
                 {attributes.length > 8 && (
@@ -302,66 +373,49 @@ const ClassNodeWithTreeView = memo<NodeProps<ClassNodeData>>(({ data }) => {
                 )}
               </Box>
             </Box>
-          ) : (
-            <Box 
-              sx={{ 
-                p: 2, 
-                textAlign: 'center',
-                backgroundColor: 'rgba(0, 0, 0, 0.02)',
-                borderRadius: 1,
-              }}
-            >
-              <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                No attributes defined
-              </Typography>
-            </Box>
           )}
           
-          {/* Visual indicator if this node has children (but don't render them nested) */}
+          {/* ✅ CRITICAL: Subclass hierarchy tree INSIDE the node */}
           {hasChildren && (
             <>
               <Divider sx={{ my: 1.5 }} />
-              <Box
-                sx={{
-                  p: 1,
-                  borderRadius: 1,
-                  backgroundColor: isSubclass 
-                    ? 'rgba(156, 39, 176, 0.05)' 
-                    : 'rgba(33, 150, 243, 0.05)',
-                  border: '1px dashed',
-                  borderColor: isSubclass ? 'secondary.light' : 'primary.light',
-                }}
-              >
-                <Stack direction="row" alignItems="center" spacing={1}>
-                  <AccountTree 
-                    sx={{ 
-                      fontSize: 16, 
-                      color: isSubclass ? 'secondary.main' : 'primary.main',
-                    }} 
-                  />
-                  <Typography 
-                    variant="caption" 
-                    sx={{ 
-                      fontSize: '0.7rem',
-                      color: 'text.secondary',
-                      fontWeight: 500,
+              <Box>
+                <Typography
+                  variant="caption"
+                  sx={{
+                    fontWeight: 600,
+                    color: 'text.secondary',
+                    textTransform: 'uppercase',
+                    fontSize: '0.65rem',
+                    letterSpacing: 0.5,
+                    display: 'block',
+                    mb: 0.75,
+                  }}
+                >
+                  Subclass Hierarchy ({hierarchy!.children.length})
+                </Typography>
+                <Box
+                  sx={{
+                    border: '1px dashed',
+                    borderColor: 'secondary.light',
+                    borderRadius: 1,
+                    p: 1,
+                    backgroundColor: 'rgba(156, 39, 176, 0.03)',
+                    maxHeight: '300px',
+                    overflowY: 'auto',
+                  }}
+                >
+                  <SimpleTreeView
+                    expandedItems={treeExpanded}
+                    onExpandedItemsChange={(_e, items) => setTreeExpanded(items)}
+                    slots={{
+                      expandIcon: ChevronRight,
+                      collapseIcon: ExpandMore,
                     }}
                   >
-                    Has {hierarchy!.children.length} subclass{hierarchy!.children.length > 1 ? 'es' : ''}
-                  </Typography>
-                  <Box sx={{ flex: 1 }} />
-                  <Chip
-                    label="Hierarchy"
-                    size="small"
-                    variant="outlined"
-                    sx={{
-                      height: 18,
-                      fontSize: '0.6rem',
-                      borderColor: isSubclass ? 'secondary.light' : 'primary.light',
-                      color: isSubclass ? 'secondary.main' : 'primary.main',
-                    }}
-                  />
-                </Stack>
+                    {hierarchy!.children.map(child => renderSubclassTree(child))}
+                  </SimpleTreeView>
+                </Box>
               </Box>
             </>
           )}

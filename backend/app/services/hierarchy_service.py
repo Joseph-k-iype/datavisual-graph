@@ -1,19 +1,20 @@
 # backend/app/services/hierarchy_service.py
 """
 Hierarchy Service - FULLY FIXED
-NO ATTRIBUTE INHERITANCE - Each class has only its own attributes
+Handles class hierarchy operations with proper parent verification
 """
 
+import uuid
+import json
+import logging
 from typing import List, Dict, Any, Optional
+from datetime import datetime
+
 from ..database import db
 from ..models.lineage.hierarchy import (
-    HierarchyTree, HierarchyNode, CreateSubclassRequest,
-    UpdateClassRequest, HierarchyStatsResponse, Attribute
+    HierarchyTree, HierarchyNode, Attribute,
+    CreateSubclassRequest, UpdateClassRequest, HierarchyStatsResponse
 )
-import logging
-import json
-import uuid
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -26,144 +27,138 @@ class HierarchyService:
         """
         Get complete hierarchy tree for a schema
         Returns nested structure with parent-child relationships
-        ✅ FIXED: Ensures name and display_name are always set with proper fallbacks
         """
         try:
             logger.info(f"📊 Building hierarchy tree for schema: {schema_id}")
             
-            # Get all classes with their relationships
-            query = """
+            # Verify schema exists
+            schema_query = """
+            MATCH (s:Schema {id: $schema_id})
+            RETURN s.name
+            """
+            
+            schema_result = db.execute_query(schema_query, {'schema_id': schema_id})
+            if not schema_result.result_set:
+                raise ValueError(f"Schema not found: {schema_id}")
+            
+            # Get all classes
+            classes_query = """
             MATCH (s:Schema {id: $schema_id})-[:HAS_CLASS]->(c:SchemaClass)
-            OPTIONAL MATCH (c)-[:HAS_SUBCLASS]->(child:SchemaClass)
-            OPTIONAL MATCH (c)<-[:INSTANCE_OF]-(inst:DataInstance)
-            WITH c, 
-                 collect(DISTINCT child.id) as child_ids,
-                 count(DISTINCT inst) as instance_count
             RETURN c.id, c.name, c.display_name, c.level, c.parent_id, 
-                   c.attributes, c.metadata, child_ids, instance_count
+                   c.attributes, c.metadata, c.instance_count
             ORDER BY c.level, c.name
             """
             
-            result = db.execute_query(query, {'schema_id': schema_id})
+            classes_result = db.execute_query(classes_query, {'schema_id': schema_id})
             
-            if not result.result_set:
+            if not classes_result.result_set:
                 return HierarchyTree(
                     schema_id=schema_id,
                     root_nodes=[],
                     max_depth=0,
                     total_nodes=0,
-                    metadata={}
+                    metadata={'note': 'No classes found'}
                 )
             
-            # Build node map
-            nodes_by_id = {}
-            children_map = {}
-            root_ids = []
+            # Build nodes map
+            nodes_by_id: Dict[str, HierarchyNode] = {}
+            children_map: Dict[str, List[str]] = {}
             
-            for row in result.result_set:
-                node_id = row[0]
-                name_raw = row[1]
-                display_name_raw = row[2]
+            for row in classes_result.result_set:
+                class_id = row[0]
+                name = row[1]
+                display_name = row[2] if row[2] else name
                 level = row[3] if row[3] is not None else 0
                 parent_id = row[4] if row[4] else None
                 attributes_str = row[5]
                 metadata_str = row[6]
-                child_ids = row[7] or []
-                instance_count = row[8]
+                instance_count = row[7] if row[7] is not None else 0
                 
-                # ✅ CRITICAL FIX: Ensure name and display_name are never None/empty
-                if display_name_raw and str(display_name_raw).strip():
-                    final_display_name = str(display_name_raw).strip()
-                    final_name = str(name_raw).strip() if name_raw else final_display_name
-                elif name_raw and str(name_raw).strip():
-                    final_name = str(name_raw).strip()
-                    final_display_name = final_name
-                else:
-                    final_name = f"Class_{node_id[:8]}"
-                    final_display_name = final_name
-                    logger.warning(f"⚠️ Node {node_id} has no name, using fallback: {final_name}")
-                
-                # Parse attributes - ✅ ONLY THIS CLASS'S ATTRIBUTES
+                # Parse attributes
                 attributes = []
                 if attributes_str:
-                    if isinstance(attributes_str, str):
-                        attr_data = json.loads(attributes_str)
-                    else:
-                        attr_data = attributes_str
-                    
-                    for attr in attr_data:
-                        if isinstance(attr, dict):
-                            attributes.append(Attribute(
-                                id=attr.get('id', str(uuid.uuid4())),
-                                name=attr['name'],
-                                data_type=attr.get('data_type', 'string'),
-                                is_primary_key=attr.get('is_primary_key', False),
-                                is_foreign_key=attr.get('is_foreign_key', False),
-                                is_nullable=attr.get('is_nullable', True),
-                                metadata=attr.get('metadata', {})
-                            ))
+                    try:
+                        if isinstance(attributes_str, str):
+                            attr_data = json.loads(attributes_str)
+                        else:
+                            attr_data = attributes_str
+                        
+                        for attr in attr_data:
+                            if isinstance(attr, dict):
+                                attributes.append(Attribute(
+                                    id=attr.get('id', str(uuid.uuid4())),
+                                    name=attr['name'],
+                                    data_type=attr.get('data_type', 'string'),
+                                    is_primary_key=attr.get('is_primary_key', False),
+                                    is_foreign_key=attr.get('is_foreign_key', False),
+                                    is_nullable=attr.get('is_nullable', True),
+                                    metadata=attr.get('metadata', {})
+                                ))
+                    except Exception as e:
+                        logger.warning(f"Failed to parse attributes for {class_id}: {e}")
                 
                 # Parse metadata
-                if isinstance(metadata_str, str):
-                    metadata = json.loads(metadata_str)
-                else:
-                    metadata = metadata_str or {}
+                metadata = {}
+                if metadata_str:
+                    try:
+                        if isinstance(metadata_str, str):
+                            metadata = json.loads(metadata_str)
+                        else:
+                            metadata = metadata_str
+                    except Exception as e:
+                        logger.warning(f"Failed to parse metadata for {class_id}: {e}")
                 
-                # Determine node type
-                node_type = 'subclass' if parent_id else 'class'
+                # Create node
+                node = HierarchyNode(
+                    id=class_id,
+                    name=name,
+                    display_name=display_name,
+                    type='subclass' if level > 0 else 'class',
+                    level=level,
+                    parent_id=parent_id,
+                    children=[],
+                    attributes=attributes,
+                    instance_count=instance_count,
+                    collapsed=False,
+                    metadata=metadata
+                )
                 
-                nodes_by_id[node_id] = {
-                    'id': node_id,
-                    'name': final_name,
-                    'display_name': final_display_name,
-                    'type': node_type,
-                    'level': level,
-                    'parent_id': parent_id,
-                    'attributes': attributes,
-                    'instance_count': instance_count,
-                    'collapsed': False,
-                    'metadata': metadata
-                }
+                nodes_by_id[class_id] = node
                 
-                # Track children
+                # Track parent-child relationships
                 if parent_id:
                     if parent_id not in children_map:
                         children_map[parent_id] = []
-                    children_map[parent_id].append(node_id)
-                else:
-                    root_ids.append(node_id)
+                    children_map[parent_id].append(class_id)
             
-            # Build tree recursively
-            def build_tree(node_id: str) -> HierarchyNode:
-                node_data = nodes_by_id[node_id]
-                children_ids = children_map.get(node_id, [])
-                children = [build_tree(child_id) for child_id in children_ids]
+            # Build tree structure
+            def build_children(node_id: str) -> List[HierarchyNode]:
+                if node_id not in children_map:
+                    return []
                 
-                return HierarchyNode(
-                    id=node_data['id'],
-                    name=node_data['name'],
-                    display_name=node_data['display_name'],
-                    type=node_data['type'],
-                    level=node_data['level'],
-                    parent_id=node_data['parent_id'],
-                    children=children,
-                    attributes=node_data['attributes'],
-                    instance_count=node_data['instance_count'],
-                    collapsed=node_data['collapsed'],
-                    metadata=node_data['metadata']
-                )
+                children = []
+                for child_id in children_map[node_id]:
+                    if child_id in nodes_by_id:
+                        child_node = nodes_by_id[child_id]
+                        child_node.children = build_children(child_id)
+                        children.append(child_node)
+                
+                return children
             
-            root_nodes = [build_tree(root_id) for root_id in root_ids]
+            # Find root nodes and build their trees
+            root_nodes = []
+            max_depth = 0
             
-            # Calculate max depth
-            def get_max_depth(node: HierarchyNode) -> int:
-                if not node.children:
-                    return node.level
-                return max(get_max_depth(child) for child in node.children)
+            for node_id, node in nodes_by_id.items():
+                if not node.parent_id:  # Root node
+                    node.children = build_children(node_id)
+                    root_nodes.append(node)
+                
+                # Track max depth
+                if node.level > max_depth:
+                    max_depth = node.level
             
-            max_depth = max([get_max_depth(node) for node in root_nodes]) if root_nodes else 0
-            
-            logger.info(f"✅ Built hierarchy tree: {len(nodes_by_id)} nodes, {len(root_nodes)} roots, depth: {max_depth}")
+            logger.info(f"✅ Built hierarchy tree: {len(root_nodes)} roots, {len(nodes_by_id)} total nodes, max depth: {max_depth}")
             
             return HierarchyTree(
                 schema_id=schema_id,
@@ -187,16 +182,15 @@ class HierarchyService:
     ) -> HierarchyNode:
         """
         Create a subclass under a parent class
-        ✅ FIXED: NO ATTRIBUTE INHERITANCE - only uses additional_attributes
+        ✅ FIXED: Proper parent verification and error handling
         """
         try:
-            logger.info(f"Creating subclass: {request.name} under {request.parent_class_id}")
+            logger.info(f"Creating subclass: {request.name} under parent: {request.parent_class_id}")
             
-            # Verify parent exists
+            # ✅ FIXED: More robust parent verification
             parent_query = """
-            MATCH (parent:SchemaClass {id: $parent_id})
-            WHERE parent.schema_id = $schema_id
-            RETURN parent.name as name, parent.level as level
+            MATCH (s:Schema {id: $schema_id})-[:HAS_CLASS]->(parent:SchemaClass {id: $parent_id})
+            RETURN parent.name as name, parent.level as level, parent.id as id
             """
             
             parent_result = db.execute_query(parent_query, {
@@ -205,20 +199,40 @@ class HierarchyService:
             })
             
             if not parent_result.result_set:
-                raise ValueError(f"Parent class not found: {request.parent_class_id}")
+                # Log detailed error for debugging
+                logger.error(f"❌ Parent class not found!")
+                logger.error(f"   Schema ID: {schema_id}")
+                logger.error(f"   Parent ID: {request.parent_class_id}")
+                
+                # Try to find if parent exists without schema constraint
+                check_query = """
+                MATCH (parent:SchemaClass {id: $parent_id})
+                RETURN parent.schema_id, parent.name
+                """
+                check_result = db.execute_query(check_query, {'parent_id': request.parent_class_id})
+                
+                if check_result.result_set:
+                    actual_schema = check_result.result_set[0][0]
+                    parent_name = check_result.result_set[0][1]
+                    logger.error(f"   Parent '{parent_name}' exists but belongs to schema: {actual_schema}")
+                    raise ValueError(f"Parent class '{parent_name}' belongs to different schema")
+                else:
+                    logger.error(f"   Parent class does not exist in database")
+                    raise ValueError(f"Parent class not found: {request.parent_class_id}")
             
             parent_name = parent_result.result_set[0][0]
             parent_level = parent_result.result_set[0][1] if parent_result.result_set[0][1] is not None else 0
             child_level = parent_level + 1
             
+            logger.info(f"   ✅ Parent found: {parent_name} (Level {parent_level})")
+            
             class_id = str(uuid.uuid4())
             final_display_name = request.display_name if request.display_name else request.name
             
-            # ✅ CRITICAL FIX: NO INHERITANCE - only use additional_attributes
-            # Each class has ONLY its own attributes
-            attributes = list(request.additional_attributes)  # Only the new attributes
+            # Use only additional_attributes (no inheritance)
+            attributes = list(request.additional_attributes)
             
-            logger.info(f"   📝 Subclass will have {len(attributes)} attributes (NO inheritance)")
+            logger.info(f"   📝 Subclass will have {len(attributes)} attributes")
             
             # Create subclass node
             create_query = """
@@ -232,7 +246,9 @@ class HierarchyService:
                 level: $level,
                 parent_id: $parent_id,
                 attributes: $attributes,
-                metadata: $metadata
+                metadata: $metadata,
+                instance_count: 0,
+                created_at: datetime()
             })
             CREATE (s)-[:HAS_CLASS]->(c)
             CREATE (parent)-[:HAS_SUBCLASS]->(c)
@@ -242,7 +258,7 @@ class HierarchyService:
             metadata = request.metadata or {}
             metadata['parent_class_id'] = request.parent_class_id
             metadata['parent_class_name'] = parent_name
-            metadata['inherited_attributes'] = False  # Mark that we don't inherit
+            metadata['inherited_attributes'] = False
             if request.description:
                 metadata['description'] = request.description
             
@@ -271,7 +287,7 @@ class HierarchyService:
                 'metadata': json.dumps(metadata)
             })
             
-            logger.info(f"✅ Created subclass: {request.name} (level {child_level}, {len(attributes)} own attributes)")
+            logger.info(f"✅ Created subclass: {request.name} (ID: {class_id}, Level {child_level})")
             
             return HierarchyNode(
                 id=class_id,
@@ -301,57 +317,79 @@ class HierarchyService:
     ) -> HierarchyNode:
         """Update a class or subclass"""
         try:
-            # Build update query
-            update_fields = []
-            params = {'schema_id': schema_id, 'class_id': class_id}
+            logger.info(f"Updating class: {class_id}")
+            
+            # Build update fields
+            updates = []
+            params = {
+                'schema_id': schema_id,
+                'class_id': class_id
+            }
             
             if request.name is not None:
-                update_fields.append('c.name = $name')
+                updates.append("c.name = $name")
                 params['name'] = request.name
             
             if request.display_name is not None:
-                update_fields.append('c.display_name = $display_name')
+                updates.append("c.display_name = $display_name")
                 params['display_name'] = request.display_name
             
             if request.metadata is not None:
-                update_fields.append('c.metadata = $metadata')
+                updates.append("c.metadata = $metadata")
                 params['metadata'] = json.dumps(request.metadata)
             
-            if not update_fields:
+            if not updates:
                 raise ValueError("No update fields provided")
             
-            query = f"""
-            MATCH (c:SchemaClass {{id: $class_id}})
-            WHERE c.schema_id = $schema_id
-            SET {', '.join(update_fields)}
-            RETURN c
+            # Update class
+            update_query = f"""
+            MATCH (s:Schema {{id: $schema_id}})-[:HAS_CLASS]->(c:SchemaClass {{id: $class_id}})
+            SET {', '.join(updates)}
+            RETURN c.id, c.name, c.display_name, c.level, c.parent_id, 
+                   c.attributes, c.metadata, c.instance_count
             """
             
-            result = db.execute_query(query, params)
+            result = db.execute_query(update_query, params)
             
             if not result.result_set:
                 raise ValueError(f"Class not found: {class_id}")
             
-            logger.info(f"✅ Updated class: {class_id}")
+            row = result.result_set[0]
             
-            # Return updated hierarchy node
-            tree = HierarchyService.get_hierarchy_tree(schema_id)
+            # Parse attributes
+            attributes = []
+            if row[5]:
+                try:
+                    attr_data = json.loads(row[5]) if isinstance(row[5], str) else row[5]
+                    for attr in attr_data:
+                        if isinstance(attr, dict):
+                            attributes.append(Attribute(**attr))
+                except Exception as e:
+                    logger.warning(f"Failed to parse attributes: {e}")
             
-            def find_node(nodes: List[HierarchyNode], node_id: str) -> Optional[HierarchyNode]:
-                for node in nodes:
-                    if node.id == node_id:
-                        return node
-                    if node.children:
-                        found = find_node(node.children, node_id)
-                        if found:
-                            return found
-                return None
+            # Parse metadata
+            metadata = {}
+            if row[6]:
+                try:
+                    metadata = json.loads(row[6]) if isinstance(row[6], str) else row[6]
+                except Exception as e:
+                    logger.warning(f"Failed to parse metadata: {e}")
             
-            updated_node = find_node(tree.root_nodes, class_id)
-            if not updated_node:
-                raise ValueError(f"Updated node not found: {class_id}")
+            logger.info(f"✅ Updated class: {row[1]}")
             
-            return updated_node
+            return HierarchyNode(
+                id=row[0],
+                name=row[1],
+                display_name=row[2] if row[2] else row[1],
+                type='subclass' if row[3] > 0 else 'class',
+                level=row[3] if row[3] is not None else 0,
+                parent_id=row[4],
+                children=[],
+                attributes=attributes,
+                instance_count=row[7] if row[7] is not None else 0,
+                collapsed=False,
+                metadata=metadata
+            )
             
         except ValueError:
             raise
@@ -360,20 +398,23 @@ class HierarchyService:
             raise
     
     @staticmethod
-    def delete_class(schema_id: str, class_id: str):
-        """Delete a class and all its subclasses"""
+    def delete_class(schema_id: str, class_id: str) -> None:
+        """Delete a class and all its children"""
         try:
-            # Delete class and all children recursively
-            query = """
-            MATCH (c:SchemaClass {id: $class_id})
-            WHERE c.schema_id = $schema_id
+            logger.info(f"Deleting class: {class_id} and all children")
+            
+            # Delete class and all descendants
+            delete_query = """
+            MATCH (s:Schema {id: $schema_id})-[:HAS_CLASS]->(c:SchemaClass {id: $class_id})
             OPTIONAL MATCH (c)-[:HAS_SUBCLASS*]->(child:SchemaClass)
-            OPTIONAL MATCH (c)<-[:INSTANCE_OF]-(inst:DataInstance)
-            OPTIONAL MATCH (child)<-[:INSTANCE_OF]-(child_inst:DataInstance)
-            DETACH DELETE c, child, inst, child_inst
+            DETACH DELETE c, child
             """
             
-            db.execute_query(query, {'schema_id': schema_id, 'class_id': class_id})
+            db.execute_query(delete_query, {
+                'schema_id': schema_id,
+                'class_id': class_id
+            })
+            
             logger.info(f"✅ Deleted class and children: {class_id}")
             
         except Exception as e:
@@ -382,37 +423,32 @@ class HierarchyService:
     
     @staticmethod
     def get_hierarchy_stats(schema_id: str) -> HierarchyStatsResponse:
-        """Get statistics about the class hierarchy"""
+        """Get statistics about class hierarchy"""
         try:
-            query = """
+            stats_query = """
             MATCH (s:Schema {id: $schema_id})-[:HAS_CLASS]->(c:SchemaClass)
             OPTIONAL MATCH (c)-[:HAS_SUBCLASS]->(child:SchemaClass)
-            WITH c, count(DISTINCT child) as child_count
-            WHERE c.parent_id IS NULL OR c.parent_id = ''
+            WITH c, count(child) as children_count
             RETURN 
-                count(c) as root_classes,
-                sum(child_count) as total_subclasses,
-                max(c.level) as max_depth
+                count(c) as total_classes,
+                sum(CASE WHEN c.level = 0 THEN 1 ELSE 0 END) as root_classes,
+                max(c.level) as max_depth,
+                avg(children_count) as avg_children
             """
             
-            result = db.execute_query(query, {'schema_id': schema_id})
+            result = db.execute_query(stats_query, {'schema_id': schema_id})
             
-            if result.result_set:
-                row = result.result_set[0]
-                return HierarchyStatsResponse(
-                    schema_id=schema_id,
-                    total_classes=row[0] + (row[1] or 0),
-                    root_classes=row[0],
-                    max_depth=row[2] or 0,
-                    avg_children_per_class=0.0
-                )
+            if not result.result_set:
+                raise ValueError(f"Schema not found: {schema_id}")
+            
+            row = result.result_set[0]
             
             return HierarchyStatsResponse(
                 schema_id=schema_id,
-                total_classes=0,
-                root_classes=0,
-                max_depth=0,
-                avg_children_per_class=0.0
+                total_classes=row[0] if row[0] is not None else 0,
+                root_classes=row[1] if row[1] is not None else 0,
+                max_depth=row[2] if row[2] is not None else 0,
+                avg_children_per_class=row[3] if row[3] is not None else 0.0
             )
             
         except Exception as e:
