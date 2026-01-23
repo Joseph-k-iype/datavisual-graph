@@ -1,0 +1,110 @@
+source_table_id,source_table_name,source_column,target_table_id,target_table_name,target_column,relationship_type,cardinality,transformation_description
+bronze_payments_001,raw_payment_transactions,*,bronze_payments_001_sub1,card_payment_transactions,*,hierarchy,one-to-many,Payment transaction specialization: card payments
+bronze_payments_001,raw_payment_transactions,*,bronze_payments_001_sub2,bank_transfer_transactions,*,hierarchy,one-to-many,Payment transaction specialization: bank transfers
+bronze_payments_001,raw_payment_transactions,*,bronze_payments_001_sub3,wallet_transactions,*,hierarchy,one-to-many,Payment transaction specialization: digital wallets
+bronze_payments_001_sub1,card_payment_transactions,*,bronze_payments_001_sub1_sub1,debit_card_transactions,*,hierarchy,one-to-many,Card payment specialization: debit cards
+bronze_payments_001_sub1,card_payment_transactions,*,bronze_payments_001_sub1_sub2,credit_card_transactions,*,hierarchy,one-to-many,Card payment specialization: credit cards
+bronze_payments_001_sub2,bank_transfer_transactions,*,bronze_payments_001_sub2_sub1,ach_transactions,*,hierarchy,one-to-many,Bank transfer specialization: ACH
+bronze_payments_001_sub2,bank_transfer_transactions,*,bronze_payments_001_sub2_sub2,wire_transfer_transactions,*,hierarchy,one-to-many,Bank transfer specialization: wire transfers
+bronze_customer_002,raw_customer_data,*,bronze_customer_002_sub1,individual_customers,*,hierarchy,one-to-many,Customer type: individual customers
+bronze_customer_002,raw_customer_data,*,bronze_customer_002_sub2,business_customers,*,hierarchy,one-to-many,Customer type: business customers
+bronze_customer_002_sub1,individual_customers,*,bronze_customer_002_sub1_sub1,premium_individual_customers,*,hierarchy,one-to-many,Individual tier: premium customers
+bronze_customer_002_sub2,business_customers,*,bronze_customer_002_sub2_sub1,enterprise_customers,*,hierarchy,one-to-many,Business tier: enterprise customers
+bronze_customer_002_sub2,business_customers,*,bronze_customer_002_sub2_sub2,smb_customers,*,hierarchy,one-to-many,Business tier: SMB customers
+bronze_merchant_003,raw_merchant_data,*,bronze_merchant_003_sub1,ecommerce_merchants,*,hierarchy,one-to-many,Merchant type: e-commerce
+bronze_merchant_003,raw_merchant_data,*,bronze_merchant_003_sub2,retail_merchants,*,hierarchy,one-to-many,Merchant type: retail
+bronze_merchant_003,raw_merchant_data,*,bronze_merchant_003_sub3,service_merchants,*,hierarchy,one-to-many,Merchant type: service providers
+bronze_merchant_003_sub1,ecommerce_merchants,*,bronze_merchant_003_sub1_sub1,marketplace_merchants,*,hierarchy,one-to-many,E-commerce specialization: marketplaces
+bronze_merchant_003_sub2,retail_merchants,*,bronze_merchant_003_sub2_sub1,chain_store_merchants,*,hierarchy,one-to-many,Retail specialization: chain stores
+bronze_refunds_007,raw_refund_requests,*,bronze_refunds_007_sub1,full_refunds,*,hierarchy,one-to-many,Refund type: full refunds
+bronze_refunds_007,raw_refund_requests,*,bronze_refunds_007_sub2,partial_refunds,*,hierarchy,one-to-many,Refund type: partial refunds
+bronze_payments_001,raw_payment_transactions,customer_id,bronze_customer_002,raw_customer_data,customer_id,foreign_key,many-to-one,Transaction to customer relationship
+bronze_payments_001,raw_payment_transactions,merchant_id,bronze_merchant_003,raw_merchant_data,merchant_id,foreign_key,many-to-one,Transaction to merchant relationship
+bronze_payments_001,raw_payment_transactions,payment_method_id,bronze_payment_methods_004,raw_payment_methods,payment_method_id,foreign_key,many-to-one,Transaction to payment method
+bronze_payment_methods_004,raw_payment_methods,customer_id,bronze_customer_002,raw_customer_data,customer_id,foreign_key,many-to-one,Payment method to customer
+bronze_gateway_logs_005,raw_payment_gateway_logs,transaction_id,bronze_payments_001,raw_payment_transactions,transaction_id,foreign_key,many-to-one,Gateway logs to transaction
+bronze_transaction_events_006,raw_transaction_events,transaction_id,bronze_payments_001,raw_payment_transactions,transaction_id,foreign_key,many-to-one,Event to transaction
+bronze_refunds_007,raw_refund_requests,transaction_id,bronze_payments_001,raw_payment_transactions,transaction_id,foreign_key,many-to-one,Refund to original transaction
+bronze_chargebacks_008,raw_chargeback_cases,transaction_id,bronze_payments_001,raw_payment_transactions,transaction_id,foreign_key,many-to-one,Chargeback to transaction
+bronze_fraud_alerts_009,raw_fraud_alerts,transaction_id,bronze_payments_001,raw_payment_transactions,transaction_id,foreign_key,many-to-one,Fraud alert to transaction
+bronze_fraud_alerts_009,raw_fraud_alerts,customer_id,bronze_customer_002,raw_customer_data,customer_id,foreign_key,many-to-one,Fraud alert to customer
+bronze_settlement_batches_010,raw_settlement_batches,merchant_id,bronze_merchant_003,raw_merchant_data,merchant_id,foreign_key,many-to-one,Settlement batch to merchant
+bronze_payments_001,raw_payment_transactions,*,silver_payments_001,clean_payment_transactions,*,data_flow,one-to-one,Bronze to Silver: Transaction data cleansing
+bronze_customer_002,raw_customer_data,*,silver_customer_002,clean_customer_profiles,*,data_flow,one-to-one,Bronze to Silver: Customer data enrichment
+bronze_merchant_003,raw_merchant_data,*,silver_merchant_003,clean_merchant_profiles,*,data_flow,one-to-one,Bronze to Silver: Merchant data standardization
+bronze_payment_methods_004,raw_payment_methods,*,silver_payment_methods_004,clean_payment_methods,*,data_flow,one-to-one,Bronze to Silver: Payment method normalization
+bronze_refunds_007,raw_refund_requests,*,silver_refunds_006,clean_refund_transactions,*,data_flow,one-to-one,Bronze to Silver: Refund data transformation
+bronze_chargebacks_008,raw_chargeback_cases,*,silver_chargebacks_007,clean_chargeback_cases,*,data_flow,one-to-one,Bronze to Silver: Chargeback processing
+bronze_fraud_alerts_009,raw_fraud_alerts,*,silver_fraud_analysis_008,fraud_detection_results,*,data_flow,one-to-one,Bronze to Silver: Fraud analysis enrichment
+bronze_settlement_batches_010,raw_settlement_batches,*,silver_settlement_009,clean_settlement_batches,*,data_flow,one-to-one,Bronze to Silver: Settlement processing
+silver_payments_001,clean_payment_transactions,*,silver_payments_001_sub1,successful_transactions,*,hierarchy,one-to-many,Transaction outcome: successful
+silver_payments_001,clean_payment_transactions,*,silver_payments_001_sub2,failed_transactions,*,hierarchy,one-to-many,Transaction outcome: failed
+silver_payments_001_sub1,successful_transactions,*,silver_payments_001_sub1_sub1,high_value_transactions,*,hierarchy,one-to-many,Successful specialization: high value
+silver_payments_001_sub1,successful_transactions,*,silver_payments_001_sub1_sub2,recurring_transactions,*,hierarchy,one-to-many,Successful specialization: recurring
+silver_payments_001_sub2,failed_transactions,*,silver_payments_001_sub2_sub1,declined_transactions,*,hierarchy,one-to-many,Failed specialization: declined
+silver_payments_001_sub2,failed_transactions,*,silver_payments_001_sub2_sub2,timeout_transactions,*,hierarchy,one-to-many,Failed specialization: timeout
+silver_customer_002,clean_customer_profiles,*,silver_customer_002_sub1,verified_customers,*,hierarchy,one-to-many,Customer verification: verified
+silver_customer_002,clean_customer_profiles,*,silver_customer_002_sub2,unverified_customers,*,hierarchy,one-to-many,Customer verification: unverified
+silver_customer_002_sub1,verified_customers,*,silver_customer_002_sub1_sub1,platinum_customers,*,hierarchy,one-to-many,Verified tier: platinum
+silver_customer_002_sub1,verified_customers,*,silver_customer_002_sub1_sub2,gold_customers,*,hierarchy,one-to-many,Verified tier: gold
+silver_merchant_003,clean_merchant_profiles,*,silver_merchant_003_sub1,active_merchants,*,hierarchy,one-to-many,Merchant status: active
+silver_merchant_003,clean_merchant_profiles,*,silver_merchant_003_sub2,inactive_merchants,*,hierarchy,one-to-many,Merchant status: inactive
+silver_merchant_003_sub1,active_merchants,*,silver_merchant_003_sub1_sub1,high_volume_merchants,*,hierarchy,one-to-many,Active tier: high volume
+silver_merchant_003_sub1,active_merchants,*,silver_merchant_003_sub1_sub2,growing_merchants,*,hierarchy,one-to-many,Active tier: growing
+silver_payment_methods_004,clean_payment_methods,*,silver_payment_methods_004_sub1,card_payment_methods,*,hierarchy,one-to-many,Payment method: cards
+silver_payment_methods_004,clean_payment_methods,*,silver_payment_methods_004_sub2,bank_payment_methods,*,hierarchy,one-to-many,Payment method: bank
+silver_payment_methods_004,clean_payment_methods,*,silver_payment_methods_004_sub3,wallet_payment_methods,*,hierarchy,one-to-many,Payment method: wallet
+silver_payment_methods_004_sub1,card_payment_methods,*,silver_payment_methods_004_sub1_sub1,premium_cards,*,hierarchy,one-to-many,Card tier: premium
+silver_refunds_006,clean_refund_transactions,*,silver_refunds_006_sub1,automatic_refunds,*,hierarchy,one-to-many,Refund processing: automatic
+silver_refunds_006,clean_refund_transactions,*,silver_refunds_006_sub2,manual_refunds,*,hierarchy,one-to-many,Refund processing: manual
+silver_chargebacks_007,clean_chargeback_cases,*,silver_chargebacks_007_sub1,won_chargebacks,*,hierarchy,one-to-many,Chargeback outcome: won
+silver_chargebacks_007,clean_chargeback_cases,*,silver_chargebacks_007_sub2,lost_chargebacks,*,hierarchy,one-to-many,Chargeback outcome: lost
+silver_fraud_analysis_008,fraud_detection_results,*,silver_fraud_analysis_008_sub1,high_risk_fraud,*,hierarchy,one-to-many,Fraud risk: high
+silver_fraud_analysis_008,fraud_detection_results,*,silver_fraud_analysis_008_sub2,low_risk_fraud,*,hierarchy,one-to-many,Fraud risk: low
+silver_fraud_analysis_008_sub1,high_risk_fraud,*,silver_fraud_analysis_008_sub1_sub1,confirmed_fraud,*,hierarchy,one-to-many,High risk outcome: confirmed
+silver_settlement_009,clean_settlement_batches,*,silver_settlement_009_sub1,completed_settlements,*,hierarchy,one-to-many,Settlement status: completed
+silver_settlement_009,clean_settlement_batches,*,silver_settlement_009_sub2,pending_settlements,*,hierarchy,one-to-many,Settlement status: pending
+silver_payments_001,clean_payment_transactions,customer_id,silver_customer_002,clean_customer_profiles,customer_id,foreign_key,many-to-one,Clean transaction to customer
+silver_payments_001,clean_payment_transactions,merchant_id,silver_merchant_003,clean_merchant_profiles,merchant_id,foreign_key,many-to-one,Clean transaction to merchant
+silver_payments_001,clean_payment_transactions,payment_method_id,silver_payment_methods_004,clean_payment_methods,payment_method_id,foreign_key,many-to-one,Clean transaction to payment method
+silver_payment_methods_004,clean_payment_methods,customer_id,silver_customer_002,clean_customer_profiles,customer_id,foreign_key,many-to-one,Payment method to customer
+silver_refunds_006,clean_refund_transactions,transaction_id,silver_payments_001,clean_payment_transactions,transaction_id,foreign_key,many-to-one,Refund to transaction
+silver_refunds_006,clean_refund_transactions,customer_id,silver_customer_002,clean_customer_profiles,customer_id,foreign_key,many-to-one,Refund to customer
+silver_chargebacks_007,clean_chargeback_cases,transaction_id,silver_payments_001,clean_payment_transactions,transaction_id,foreign_key,many-to-one,Chargeback to transaction
+silver_fraud_analysis_008,fraud_detection_results,transaction_id,silver_payments_001,clean_payment_transactions,transaction_id,foreign_key,one-to-one,Fraud analysis to transaction
+silver_settlement_009,clean_settlement_batches,merchant_id,silver_merchant_003,clean_merchant_profiles,merchant_id,foreign_key,many-to-one,Settlement to merchant
+silver_payments_001,clean_payment_transactions,*,gold_metrics_001,transaction_analytics,*,aggregation,many-to-one,Silver to Gold: Transaction aggregation
+silver_payments_001,clean_payment_transactions,*,gold_customer_analytics_002,customer_insights,*,aggregation,many-to-one,Silver to Gold: Customer analytics
+silver_customer_002,clean_customer_profiles,*,gold_customer_analytics_002,customer_insights,*,aggregation,one-to-one,Silver to Gold: Customer profile enrichment
+silver_merchant_003,clean_merchant_profiles,*,gold_merchant_analytics_003,merchant_performance,*,aggregation,one-to-one,Silver to Gold: Merchant performance metrics
+silver_payments_001,clean_payment_transactions,*,gold_revenue_analytics_004,revenue_metrics,*,aggregation,many-to-one,Silver to Gold: Revenue calculation
+silver_refunds_006,clean_refund_transactions,*,gold_revenue_analytics_004,revenue_metrics,*,aggregation,many-to-one,Silver to Gold: Revenue adjustments
+silver_fraud_analysis_008,fraud_detection_results,*,gold_fraud_analytics_005,fraud_insights,*,aggregation,many-to-one,Silver to Gold: Fraud analytics
+silver_customer_002,clean_customer_profiles,*,gold_cohort_analytics_006,customer_cohorts,*,aggregation,many-to-one,Silver to Gold: Cohort analysis
+gold_metrics_001,transaction_analytics,*,gold_metrics_001_sub1,daily_transaction_metrics,*,hierarchy,one-to-many,Time period: daily metrics
+gold_metrics_001,transaction_analytics,*,gold_metrics_001_sub2,monthly_transaction_metrics,*,hierarchy,one-to-many,Time period: monthly metrics
+gold_metrics_001_sub1,daily_transaction_metrics,*,gold_metrics_001_sub1_sub1,weekday_metrics,*,hierarchy,one-to-many,Daily specialization: weekdays
+gold_metrics_001_sub1,daily_transaction_metrics,*,gold_metrics_001_sub1_sub2,weekend_metrics,*,hierarchy,one-to-many,Daily specialization: weekends
+gold_customer_analytics_002,customer_insights,*,gold_customer_analytics_002_sub1,high_value_customers,*,hierarchy,one-to-many,Customer value: high
+gold_customer_analytics_002,customer_insights,*,gold_customer_analytics_002_sub2,at_risk_customers,*,hierarchy,one-to-many,Customer risk: at risk
+gold_customer_analytics_002_sub1,high_value_customers,*,gold_customer_analytics_002_sub1_sub1,vip_customers,*,hierarchy,one-to-many,High value tier: VIP
+gold_customer_analytics_002_sub2,at_risk_customers,*,gold_customer_analytics_002_sub2_sub1,churned_customers,*,hierarchy,one-to-many,At risk outcome: churned
+gold_merchant_analytics_003,merchant_performance,*,gold_merchant_analytics_003_sub1,top_performing_merchants,*,hierarchy,one-to-many,Performance: top performers
+gold_merchant_analytics_003,merchant_performance,*,gold_merchant_analytics_003_sub2,underperforming_merchants,*,hierarchy,one-to-many,Performance: underperformers
+gold_merchant_analytics_003_sub1,top_performing_merchants,*,gold_merchant_analytics_003_sub1_sub1,elite_merchants,*,hierarchy,one-to-many,Top tier: elite merchants
+gold_revenue_analytics_004,revenue_metrics,*,gold_revenue_analytics_004_sub1,transaction_fee_revenue,*,hierarchy,one-to-many,Revenue source: transaction fees
+gold_revenue_analytics_004,revenue_metrics,*,gold_revenue_analytics_004_sub2,subscription_revenue,*,hierarchy,one-to-many,Revenue source: subscriptions
+gold_revenue_analytics_004_sub1,transaction_fee_revenue,*,gold_revenue_analytics_004_sub1_sub1,card_fee_revenue,*,hierarchy,one-to-many,Fee type: card fees
+gold_revenue_analytics_004_sub1,transaction_fee_revenue,*,gold_revenue_analytics_004_sub1_sub2,alternative_payment_revenue,*,hierarchy,one-to-many,Fee type: alternative payments
+gold_fraud_analytics_005,fraud_insights,*,gold_fraud_analytics_005_sub1,confirmed_fraud_cases,*,hierarchy,one-to-many,Fraud outcome: confirmed
+gold_fraud_analytics_005,fraud_insights,*,gold_fraud_analytics_005_sub2,false_positives,*,hierarchy,one-to-many,Fraud outcome: false positives
+gold_fraud_analytics_005_sub1,confirmed_fraud_cases,*,gold_fraud_analytics_005_sub1_sub1,identity_fraud,*,hierarchy,one-to-many,Fraud type: identity
+gold_fraud_analytics_005_sub1,confirmed_fraud_cases,*,gold_fraud_analytics_005_sub1_sub2,payment_fraud,*,hierarchy,one-to-many,Fraud type: payment
+gold_cohort_analytics_006,customer_cohorts,*,gold_cohort_analytics_006_sub1,high_performing_cohorts,*,hierarchy,one-to-many,Cohort performance: high
+gold_cohort_analytics_006,customer_cohorts,*,gold_cohort_analytics_006_sub2,declining_cohorts,*,hierarchy,one-to-many,Cohort performance: declining
+bronze_payments_001_sub1,card_payment_transactions,*,silver_payments_001_sub1,successful_transactions,*,data_flow,one-to-one,Card transactions flow to successful Silver transactions
+bronze_customer_002_sub1,individual_customers,*,silver_customer_002_sub1,verified_customers,*,data_flow,one-to-one,Individual customers typically verified
+bronze_merchant_003_sub1,ecommerce_merchants,*,silver_merchant_003_sub1,active_merchants,*,data_flow,one-to-one,E-commerce merchants flow to active Silver merchants
+silver_payments_001_sub1,successful_transactions,*,gold_metrics_001_sub1,daily_transaction_metrics,*,aggregation,many-to-one,Successful transactions aggregate to daily metrics
+silver_customer_002_sub1,verified_customers,*,gold_customer_analytics_002_sub1,high_value_customers,*,aggregation,many-to-one,Verified customers aggregate to high-value analytics
+silver_fraud_analysis_008_sub1,high_risk_fraud,*,gold_fraud_analytics_005_sub1,confirmed_fraud_cases,*,aggregation,many-to-one,High risk fraud aggregates to confirmed cases

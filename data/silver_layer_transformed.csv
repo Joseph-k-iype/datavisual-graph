@@ -1,0 +1,135 @@
+table_id,table_name,database_name,schema_name,column_name,data_type,description,is_primary_key,is_foreign_key,foreign_key_table,parent_table,level,display_name
+silver_payments_001,clean_payment_transactions,payments_db,silver,transaction_id,VARCHAR(36),Unique transaction identifier,TRUE,FALSE,,,0,Clean Payment Transactions
+silver_payments_001,clean_payment_transactions,payments_db,silver,customer_id,VARCHAR(36),Customer identifier,FALSE,TRUE,clean_customer_profiles,,0,Clean Payment Transactions
+silver_payments_001,clean_payment_transactions,payments_db,silver,merchant_id,VARCHAR(36),Merchant identifier,FALSE,TRUE,clean_merchant_profiles,,0,Clean Payment Transactions
+silver_payments_001,clean_payment_transactions,payments_db,silver,payment_method_id,VARCHAR(36),Payment method identifier,FALSE,TRUE,clean_payment_methods,,0,Clean Payment Transactions
+silver_payments_001,clean_payment_transactions,payments_db,silver,transaction_amount_usd,DECIMAL(18,2),Transaction amount in USD,FALSE,FALSE,,,0,Clean Payment Transactions
+silver_payments_001,clean_payment_transactions,payments_db,silver,transaction_status,VARCHAR(20),Standardized transaction status,FALSE,FALSE,,,0,Clean Payment Transactions
+silver_payments_001,clean_payment_transactions,payments_db,silver,is_successful,BOOLEAN,Transaction success flag,FALSE,FALSE,,,0,Clean Payment Transactions
+silver_payments_001,clean_payment_transactions,payments_db,silver,transaction_date,DATE,Transaction date,FALSE,FALSE,,,0,Clean Payment Transactions
+silver_payments_001_sub1,successful_transactions,payments_db,silver,transaction_id,VARCHAR(36),Successful transaction ID,TRUE,FALSE,,silver_payments_001,1,Successful Transactions
+silver_payments_001_sub1,successful_transactions,payments_db,silver,completion_timestamp,TIMESTAMP,Completion time,FALSE,FALSE,,silver_payments_001,1,Successful Transactions
+silver_payments_001_sub1,successful_transactions,payments_db,silver,settlement_eligible,BOOLEAN,Eligible for settlement,FALSE,FALSE,,silver_payments_001,1,Successful Transactions
+silver_payments_001_sub1_sub1,high_value_transactions,payments_db,silver,transaction_id,VARCHAR(36),High value transaction ID,TRUE,FALSE,,silver_payments_001_sub1,2,High Value Transactions
+silver_payments_001_sub1_sub1,high_value_transactions,payments_db,silver,value_threshold_exceeded,BOOLEAN,Exceeded threshold flag,FALSE,FALSE,,silver_payments_001_sub1,2,High Value Transactions
+silver_payments_001_sub1_sub1,high_value_transactions,payments_db,silver,enhanced_monitoring,BOOLEAN,Enhanced monitoring required,FALSE,FALSE,,silver_payments_001_sub1,2,High Value Transactions
+silver_payments_001_sub1_sub2,recurring_transactions,payments_db,silver,transaction_id,VARCHAR(36),Recurring transaction ID,TRUE,FALSE,,silver_payments_001_sub1,2,Recurring Transactions
+silver_payments_001_sub1_sub2,recurring_transactions,payments_db,silver,subscription_id,VARCHAR(36),Subscription identifier,FALSE,FALSE,,silver_payments_001_sub1,2,Recurring Transactions
+silver_payments_001_sub1_sub2,recurring_transactions,payments_db,silver,billing_cycle,VARCHAR(20),Billing cycle frequency,FALSE,FALSE,,silver_payments_001_sub1,2,Recurring Transactions
+silver_payments_001_sub2,failed_transactions,payments_db,silver,transaction_id,VARCHAR(36),Failed transaction ID,TRUE,FALSE,,silver_payments_001,1,Failed Transactions
+silver_payments_001_sub2,failed_transactions,payments_db,silver,failure_reason,VARCHAR(255),Detailed failure reason,FALSE,FALSE,,silver_payments_001,1,Failed Transactions
+silver_payments_001_sub2,failed_transactions,payments_db,silver,failure_category,VARCHAR(50),Failure category,FALSE,FALSE,,silver_payments_001,1,Failed Transactions
+silver_payments_001_sub2,failed_transactions,payments_db,silver,retry_eligible,BOOLEAN,Can be retried,FALSE,FALSE,,silver_payments_001,1,Failed Transactions
+silver_payments_001_sub2_sub1,declined_transactions,payments_db,silver,transaction_id,VARCHAR(36),Declined transaction ID,TRUE,FALSE,,silver_payments_001_sub2,2,Declined Transactions
+silver_payments_001_sub2_sub1,declined_transactions,payments_db,silver,decline_code,VARCHAR(20),Issuer decline code,FALSE,FALSE,,silver_payments_001_sub2,2,Declined Transactions
+silver_payments_001_sub2_sub1,declined_transactions,payments_db,silver,soft_decline,BOOLEAN,Soft decline flag,FALSE,FALSE,,silver_payments_001_sub2,2,Declined Transactions
+silver_payments_001_sub2_sub2,timeout_transactions,payments_db,silver,transaction_id,VARCHAR(36),Timeout transaction ID,TRUE,FALSE,,silver_payments_001_sub2,2,Timeout Transactions
+silver_payments_001_sub2_sub2,timeout_transactions,payments_db,silver,timeout_duration_ms,INT,Timeout duration,FALSE,FALSE,,silver_payments_001_sub2,2,Timeout Transactions
+silver_payments_001_sub2_sub2,timeout_transactions,payments_db,silver,gateway_timeout,BOOLEAN,Gateway timeout flag,FALSE,FALSE,,silver_payments_001_sub2,2,Timeout Transactions
+silver_customer_002,clean_customer_profiles,payments_db,silver,customer_id,VARCHAR(36),Unique customer identifier,TRUE,FALSE,,,0,Clean Customer Profiles
+silver_customer_002,clean_customer_profiles,payments_db,silver,full_name,VARCHAR(255),Customer full name,FALSE,FALSE,,,0,Clean Customer Profiles
+silver_customer_002,clean_customer_profiles,payments_db,silver,email,VARCHAR(255),Normalized email address,FALSE,FALSE,,,0,Clean Customer Profiles
+silver_customer_002,clean_customer_profiles,payments_db,silver,country_code,VARCHAR(2),ISO 3166 country code,FALSE,FALSE,,,0,Clean Customer Profiles
+silver_customer_002,clean_customer_profiles,payments_db,silver,kyc_status,VARCHAR(20),KYC verification status,FALSE,FALSE,,,0,Clean Customer Profiles
+silver_customer_002,clean_customer_profiles,payments_db,silver,risk_category,VARCHAR(20),Risk category,FALSE,FALSE,,,0,Clean Customer Profiles
+silver_customer_002_sub1,verified_customers,payments_db,silver,customer_id,VARCHAR(36),Verified customer ID,TRUE,FALSE,,silver_customer_002,1,Verified Customers
+silver_customer_002_sub1,verified_customers,payments_db,silver,verification_date,DATE,KYC verification date,FALSE,FALSE,,silver_customer_002,1,Verified Customers
+silver_customer_002_sub1,verified_customers,payments_db,silver,verification_level,VARCHAR(20),Verification level,FALSE,FALSE,,silver_customer_002,1,Verified Customers
+silver_customer_002_sub1_sub1,platinum_customers,payments_db,silver,customer_id,VARCHAR(36),Platinum customer ID,TRUE,FALSE,,silver_customer_002_sub1,2,Platinum Customers
+silver_customer_002_sub1_sub1,platinum_customers,payments_db,silver,lifetime_value_usd,DECIMAL(18,2),Customer lifetime value,FALSE,FALSE,,silver_customer_002_sub1,2,Platinum Customers
+silver_customer_002_sub1_sub1,platinum_customers,payments_db,silver,platinum_since,DATE,Platinum status date,FALSE,FALSE,,silver_customer_002_sub1,2,Platinum Customers
+silver_customer_002_sub1_sub1,platinum_customers,payments_db,silver,priority_support,BOOLEAN,Priority support enabled,FALSE,FALSE,,silver_customer_002_sub1,2,Platinum Customers
+silver_customer_002_sub1_sub2,gold_customers,payments_db,silver,customer_id,VARCHAR(36),Gold customer ID,TRUE,FALSE,,silver_customer_002_sub1,2,Gold Customers
+silver_customer_002_sub1_sub2,gold_customers,payments_db,silver,loyalty_points,INT,Accumulated loyalty points,FALSE,FALSE,,silver_customer_002_sub1,2,Gold Customers
+silver_customer_002_sub1_sub2,gold_customers,payments_db,silver,gold_since,DATE,Gold status date,FALSE,FALSE,,silver_customer_002_sub1,2,Gold Customers
+silver_customer_002_sub2,unverified_customers,payments_db,silver,customer_id,VARCHAR(36),Unverified customer ID,TRUE,FALSE,,silver_customer_002,1,Unverified Customers
+silver_customer_002_sub2,unverified_customers,payments_db,silver,verification_pending,BOOLEAN,Verification pending flag,FALSE,FALSE,,silver_customer_002,1,Unverified Customers
+silver_customer_002_sub2,unverified_customers,payments_db,silver,transaction_limit_usd,DECIMAL(18,2),Transaction limit,FALSE,FALSE,,silver_customer_002,1,Unverified Customers
+silver_customer_002_sub2,unverified_customers,payments_db,silver,verification_reminder_sent,BOOLEAN,Reminder sent flag,FALSE,FALSE,,silver_customer_002,1,Unverified Customers
+silver_merchant_003,clean_merchant_profiles,payments_db,silver,merchant_id,VARCHAR(36),Unique merchant identifier,TRUE,FALSE,,,0,Clean Merchant Profiles
+silver_merchant_003,clean_merchant_profiles,payments_db,silver,merchant_name,VARCHAR(255),Standardized merchant name,FALSE,FALSE,,,0,Clean Merchant Profiles
+silver_merchant_003,clean_merchant_profiles,payments_db,silver,business_category,VARCHAR(50),Business category,FALSE,FALSE,,,0,Clean Merchant Profiles
+silver_merchant_003,clean_merchant_profiles,payments_db,silver,country_code,VARCHAR(2),Merchant country code,FALSE,FALSE,,,0,Clean Merchant Profiles
+silver_merchant_003,clean_merchant_profiles,payments_db,silver,status,VARCHAR(20),Merchant account status,FALSE,FALSE,,,0,Clean Merchant Profiles
+silver_merchant_003,clean_merchant_profiles,payments_db,silver,is_active,BOOLEAN,Merchant active flag,FALSE,FALSE,,,0,Clean Merchant Profiles
+silver_merchant_003_sub1,active_merchants,payments_db,silver,merchant_id,VARCHAR(36),Active merchant ID,TRUE,FALSE,,silver_merchant_003,1,Active Merchants
+silver_merchant_003_sub1,active_merchants,payments_db,silver,monthly_volume_usd,DECIMAL(18,2),Monthly transaction volume,FALSE,FALSE,,silver_merchant_003,1,Active Merchants
+silver_merchant_003_sub1,active_merchants,payments_db,silver,last_transaction_date,DATE,Last transaction date,FALSE,FALSE,,silver_merchant_003,1,Active Merchants
+silver_merchant_003_sub1_sub1,high_volume_merchants,payments_db,silver,merchant_id,VARCHAR(36),High volume merchant ID,TRUE,FALSE,,silver_merchant_003_sub1,2,High Volume Merchants
+silver_merchant_003_sub1_sub1,high_volume_merchants,payments_db,silver,volume_tier,VARCHAR(20),Volume tier classification,FALSE,FALSE,,silver_merchant_003_sub1,2,High Volume Merchants
+silver_merchant_003_sub1_sub1,high_volume_merchants,payments_db,silver,priority_settlement,BOOLEAN,Priority settlement flag,FALSE,FALSE,,silver_merchant_003_sub1,2,High Volume Merchants
+silver_merchant_003_sub1_sub1,high_volume_merchants,payments_db,silver,dedicated_support,BOOLEAN,Dedicated support team,FALSE,FALSE,,silver_merchant_003_sub1,2,High Volume Merchants
+silver_merchant_003_sub1_sub2,growing_merchants,payments_db,silver,merchant_id,VARCHAR(36),Growing merchant ID,TRUE,FALSE,,silver_merchant_003_sub1,2,Growing Merchants
+silver_merchant_003_sub1_sub2,growing_merchants,payments_db,silver,growth_rate_percentage,DECIMAL(5,2),Monthly growth rate,FALSE,FALSE,,silver_merchant_003_sub1,2,Growing Merchants
+silver_merchant_003_sub1_sub2,growing_merchants,payments_db,silver,growth_tier,VARCHAR(20),Growth tier,FALSE,FALSE,,silver_merchant_003_sub1,2,Growing Merchants
+silver_merchant_003_sub2,inactive_merchants,payments_db,silver,merchant_id,VARCHAR(36),Inactive merchant ID,TRUE,FALSE,,silver_merchant_003,1,Inactive Merchants
+silver_merchant_003_sub2,inactive_merchants,payments_db,silver,inactive_since,DATE,Inactive since date,FALSE,FALSE,,silver_merchant_003,1,Inactive Merchants
+silver_merchant_003_sub2,inactive_merchants,payments_db,silver,dormancy_days,INT,Days since last transaction,FALSE,FALSE,,silver_merchant_003,1,Inactive Merchants
+silver_merchant_003_sub2,inactive_merchants,payments_db,silver,reactivation_attempted,BOOLEAN,Reactivation outreach flag,FALSE,FALSE,,silver_merchant_003,1,Inactive Merchants
+silver_payment_methods_004,clean_payment_methods,payments_db,silver,payment_method_id,VARCHAR(36),Unique payment method identifier,TRUE,FALSE,,,0,Clean Payment Methods
+silver_payment_methods_004,clean_payment_methods,payments_db,silver,customer_id,VARCHAR(36),Customer identifier,FALSE,TRUE,clean_customer_profiles,,0,Clean Payment Methods
+silver_payment_methods_004,clean_payment_methods,payments_db,silver,method_type,VARCHAR(30),Standardized payment method type,FALSE,FALSE,,,0,Clean Payment Methods
+silver_payment_methods_004,clean_payment_methods,payments_db,silver,is_default,BOOLEAN,Is default payment method,FALSE,FALSE,,,0,Clean Payment Methods
+silver_payment_methods_004,clean_payment_methods,payments_db,silver,is_expired,BOOLEAN,Expiration flag,FALSE,FALSE,,,0,Clean Payment Methods
+silver_payment_methods_004_sub1,card_payment_methods,payments_db,silver,payment_method_id,VARCHAR(36),Card payment method ID,TRUE,FALSE,,silver_payment_methods_004,1,Card Payment Methods
+silver_payment_methods_004_sub1,card_payment_methods,payments_db,silver,card_brand,VARCHAR(20),Standardized card brand,FALSE,FALSE,,silver_payment_methods_004,1,Card Payment Methods
+silver_payment_methods_004_sub1,card_payment_methods,payments_db,silver,card_last_four,VARCHAR(4),Last 4 digits,FALSE,FALSE,,silver_payment_methods_004,1,Card Payment Methods
+silver_payment_methods_004_sub1,card_payment_methods,payments_db,silver,card_type,VARCHAR(20),Card type,FALSE,FALSE,,silver_payment_methods_004,1,Card Payment Methods
+silver_payment_methods_004_sub1_sub1,premium_cards,payments_db,silver,payment_method_id,VARCHAR(36),Premium card ID,TRUE,FALSE,,silver_payment_methods_004_sub1,2,Premium Cards
+silver_payment_methods_004_sub1_sub1,premium_cards,payments_db,silver,card_tier,VARCHAR(20),Card tier (Platinum/Black),FALSE,FALSE,,silver_payment_methods_004_sub1,2,Premium Cards
+silver_payment_methods_004_sub1_sub1,premium_cards,payments_db,silver,rewards_multiplier,DECIMAL(3,2),Rewards multiplier,FALSE,FALSE,,silver_payment_methods_004_sub1,2,Premium Cards
+silver_payment_methods_004_sub2,bank_payment_methods,payments_db,silver,payment_method_id,VARCHAR(36),Bank payment method ID,TRUE,FALSE,,silver_payment_methods_004,1,Bank Payment Methods
+silver_payment_methods_004_sub2,bank_payment_methods,payments_db,silver,bank_name,VARCHAR(100),Bank name,FALSE,FALSE,,silver_payment_methods_004,1,Bank Payment Methods
+silver_payment_methods_004_sub2,bank_payment_methods,payments_db,silver,account_type,VARCHAR(20),Account type,FALSE,FALSE,,silver_payment_methods_004,1,Bank Payment Methods
+silver_payment_methods_004_sub3,wallet_payment_methods,payments_db,silver,payment_method_id,VARCHAR(36),Wallet payment method ID,TRUE,FALSE,,silver_payment_methods_004,1,Wallet Payment Methods
+silver_payment_methods_004_sub3,wallet_payment_methods,payments_db,silver,wallet_provider,VARCHAR(50),Wallet provider name,FALSE,FALSE,,silver_payment_methods_004,1,Wallet Payment Methods
+silver_payment_methods_004_sub3,wallet_payment_methods,payments_db,silver,wallet_verified,BOOLEAN,Wallet verification status,FALSE,FALSE,,silver_payment_methods_004,1,Wallet Payment Methods
+silver_refunds_006,clean_refund_transactions,payments_db,silver,refund_id,VARCHAR(36),Unique refund identifier,TRUE,FALSE,,,0,Clean Refund Transactions
+silver_refunds_006,clean_refund_transactions,payments_db,silver,transaction_id,VARCHAR(36),Original transaction identifier,FALSE,TRUE,clean_payment_transactions,,0,Clean Refund Transactions
+silver_refunds_006,clean_refund_transactions,payments_db,silver,customer_id,VARCHAR(36),Customer identifier,FALSE,TRUE,clean_customer_profiles,,0,Clean Refund Transactions
+silver_refunds_006,clean_refund_transactions,payments_db,silver,refund_amount_usd,DECIMAL(18,2),Refund amount in USD,FALSE,FALSE,,,0,Clean Refund Transactions
+silver_refunds_006,clean_refund_transactions,payments_db,silver,refund_type,VARCHAR(30),Refund type,FALSE,FALSE,,,0,Clean Refund Transactions
+silver_refunds_006,clean_refund_transactions,payments_db,silver,is_completed,BOOLEAN,Refund completion flag,FALSE,FALSE,,,0,Clean Refund Transactions
+silver_refunds_006_sub1,automatic_refunds,payments_db,silver,refund_id,VARCHAR(36),Automatic refund ID,TRUE,FALSE,,silver_refunds_006,1,Automatic Refunds
+silver_refunds_006_sub1,automatic_refunds,payments_db,silver,auto_trigger_reason,VARCHAR(100),Automatic trigger reason,FALSE,FALSE,,silver_refunds_006,1,Automatic Refunds
+silver_refunds_006_sub1,automatic_refunds,payments_db,silver,policy_based,BOOLEAN,Policy-based refund,FALSE,FALSE,,silver_refunds_006,1,Automatic Refunds
+silver_refunds_006_sub2,manual_refunds,payments_db,silver,refund_id,VARCHAR(36),Manual refund ID,TRUE,FALSE,,silver_refunds_006,1,Manual Refunds
+silver_refunds_006_sub2,manual_refunds,payments_db,silver,approved_by,VARCHAR(100),Approver name,FALSE,FALSE,,silver_refunds_006,1,Manual Refunds
+silver_refunds_006_sub2,manual_refunds,payments_db,silver,approval_timestamp,TIMESTAMP,Approval timestamp,FALSE,FALSE,,silver_refunds_006,1,Manual Refunds
+silver_chargebacks_007,clean_chargeback_cases,payments_db,silver,chargeback_id,VARCHAR(36),Unique chargeback identifier,TRUE,FALSE,,,0,Clean Chargeback Cases
+silver_chargebacks_007,clean_chargeback_cases,payments_db,silver,transaction_id,VARCHAR(36),Disputed transaction identifier,FALSE,TRUE,clean_payment_transactions,,0,Clean Chargeback Cases
+silver_chargebacks_007,clean_chargeback_cases,payments_db,silver,chargeback_amount_usd,DECIMAL(18,2),Chargeback amount in USD,FALSE,FALSE,,,0,Clean Chargeback Cases
+silver_chargebacks_007,clean_chargeback_cases,payments_db,silver,reason_category,VARCHAR(50),Standardized reason category,FALSE,FALSE,,,0,Clean Chargeback Cases
+silver_chargebacks_007,clean_chargeback_cases,payments_db,silver,chargeback_status,VARCHAR(20),Chargeback case status,FALSE,FALSE,,,0,Clean Chargeback Cases
+silver_chargebacks_007_sub1,won_chargebacks,payments_db,silver,chargeback_id,VARCHAR(36),Won chargeback ID,TRUE,FALSE,,silver_chargebacks_007,1,Won Chargebacks
+silver_chargebacks_007_sub1,won_chargebacks,payments_db,silver,resolution_date,DATE,Case won date,FALSE,FALSE,,silver_chargebacks_007,1,Won Chargebacks
+silver_chargebacks_007_sub1,won_chargebacks,payments_db,silver,evidence_quality_score,INT,Evidence quality score,FALSE,FALSE,,silver_chargebacks_007,1,Won Chargebacks
+silver_chargebacks_007_sub2,lost_chargebacks,payments_db,silver,chargeback_id,VARCHAR(36),Lost chargeback ID,TRUE,FALSE,,silver_chargebacks_007,1,Lost Chargebacks
+silver_chargebacks_007_sub2,lost_chargebacks,payments_db,silver,loss_amount_usd,DECIMAL(18,2),Financial loss amount,FALSE,FALSE,,silver_chargebacks_007,1,Lost Chargebacks
+silver_chargebacks_007_sub2,lost_chargebacks,payments_db,silver,lessons_learned,TEXT,Post-mortem notes,FALSE,FALSE,,silver_chargebacks_007,1,Lost Chargebacks
+silver_fraud_analysis_008,fraud_detection_results,payments_db,silver,analysis_id,VARCHAR(36),Unique analysis identifier,TRUE,FALSE,,,0,Fraud Detection Results
+silver_fraud_analysis_008,fraud_detection_results,payments_db,silver,transaction_id,VARCHAR(36),Analyzed transaction identifier,FALSE,TRUE,clean_payment_transactions,,0,Fraud Detection Results
+silver_fraud_analysis_008,fraud_detection_results,payments_db,silver,overall_risk_score,INT,Overall fraud risk score,FALSE,FALSE,,,0,Fraud Detection Results
+silver_fraud_analysis_008,fraud_detection_results,payments_db,silver,risk_category,VARCHAR(20),Risk category,FALSE,FALSE,,,0,Fraud Detection Results
+silver_fraud_analysis_008,fraud_detection_results,payments_db,silver,is_flagged,BOOLEAN,Fraud flag,FALSE,FALSE,,,0,Fraud Detection Results
+silver_fraud_analysis_008_sub1,high_risk_fraud,payments_db,silver,analysis_id,VARCHAR(36),High risk analysis ID,TRUE,FALSE,,silver_fraud_analysis_008,1,High Risk Fraud
+silver_fraud_analysis_008_sub1,high_risk_fraud,payments_db,silver,manual_review_required,BOOLEAN,Manual review flag,FALSE,FALSE,,silver_fraud_analysis_008,1,High Risk Fraud
+silver_fraud_analysis_008_sub1,high_risk_fraud,payments_db,silver,review_assigned_to,VARCHAR(100),Assigned analyst,FALSE,FALSE,,silver_fraud_analysis_008,1,High Risk Fraud
+silver_fraud_analysis_008_sub1_sub1,confirmed_fraud,payments_db,silver,analysis_id,VARCHAR(36),Confirmed fraud ID,TRUE,FALSE,,silver_fraud_analysis_008_sub1,2,Confirmed Fraud
+silver_fraud_analysis_008_sub1_sub1,confirmed_fraud,payments_db,silver,fraud_type,VARCHAR(50),Type of fraud detected,FALSE,FALSE,,silver_fraud_analysis_008_sub1,2,Confirmed Fraud
+silver_fraud_analysis_008_sub1_sub1,confirmed_fraud,payments_db,silver,reported_to_authorities,BOOLEAN,Law enforcement notified,FALSE,FALSE,,silver_fraud_analysis_008_sub1,2,Confirmed Fraud
+silver_fraud_analysis_008_sub2,low_risk_fraud,payments_db,silver,analysis_id,VARCHAR(36),Low risk analysis ID,TRUE,FALSE,,silver_fraud_analysis_008,1,Low Risk Fraud
+silver_fraud_analysis_008_sub2,low_risk_fraud,payments_db,silver,auto_approved,BOOLEAN,Automatically approved,FALSE,FALSE,,silver_fraud_analysis_008,1,Low Risk Fraud
+silver_fraud_analysis_008_sub2,low_risk_fraud,payments_db,silver,monitoring_enabled,BOOLEAN,Continue monitoring,FALSE,FALSE,,silver_fraud_analysis_008,1,Low Risk Fraud
+silver_settlement_009,clean_settlement_batches,payments_db,silver,batch_id,VARCHAR(36),Unique batch identifier,TRUE,FALSE,,,0,Clean Settlement Batches
+silver_settlement_009,clean_settlement_batches,payments_db,silver,merchant_id,VARCHAR(36),Merchant identifier,FALSE,TRUE,clean_merchant_profiles,,0,Clean Settlement Batches
+silver_settlement_009,clean_settlement_batches,payments_db,silver,batch_date,DATE,Settlement batch date,FALSE,FALSE,,,0,Clean Settlement Batches
+silver_settlement_009,clean_settlement_batches,payments_db,silver,total_amount_usd,DECIMAL(18,2),Total amount in USD,FALSE,FALSE,,,0,Clean Settlement Batches
+silver_settlement_009,clean_settlement_batches,payments_db,silver,transaction_count,INT,Number of transactions,FALSE,FALSE,,,0,Clean Settlement Batches
+silver_settlement_009,clean_settlement_batches,payments_db,silver,settlement_status,VARCHAR(20),Settlement status,FALSE,FALSE,,,0,Clean Settlement Batches
+silver_settlement_009_sub1,completed_settlements,payments_db,silver,batch_id,VARCHAR(36),Completed settlement ID,TRUE,FALSE,,silver_settlement_009,1,Completed Settlements
+silver_settlement_009_sub1,completed_settlements,payments_db,silver,completion_timestamp,TIMESTAMP,Settlement completion time,FALSE,FALSE,,silver_settlement_009,1,Completed Settlements
+silver_settlement_009_sub1,completed_settlements,payments_db,silver,bank_confirmation_number,VARCHAR(50),Bank confirmation,FALSE,FALSE,,silver_settlement_009,1,Completed Settlements
+silver_settlement_009_sub2,pending_settlements,payments_db,silver,batch_id,VARCHAR(36),Pending settlement ID,TRUE,FALSE,,silver_settlement_009,1,Pending Settlements
+silver_settlement_009_sub2,pending_settlements,payments_db,silver,expected_completion_date,DATE,Expected completion,FALSE,FALSE,,silver_settlement_009,1,Pending Settlements
+silver_settlement_009_sub2,pending_settlements,payments_db,silver,holding_reason,VARCHAR(100),Reason for hold,FALSE,FALSE,,silver_settlement_009,1,Pending Settlements

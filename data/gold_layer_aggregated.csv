@@ -1,0 +1,97 @@
+table_id,table_name,database_name,schema_name,column_name,data_type,description,is_primary_key,is_foreign_key,foreign_key_table,parent_table,level,display_name
+gold_metrics_001,transaction_analytics,analytics_db,gold,metric_date,DATE,Metric date,TRUE,FALSE,,,0,Transaction Analytics
+gold_metrics_001,transaction_analytics,analytics_db,gold,total_transactions,INT,Total transaction count,FALSE,FALSE,,,0,Transaction Analytics
+gold_metrics_001,transaction_analytics,analytics_db,gold,total_volume_usd,DECIMAL(18,2),Total volume USD,FALSE,FALSE,,,0,Transaction Analytics
+gold_metrics_001,transaction_analytics,analytics_db,gold,success_rate,DECIMAL(5,2),Success rate percentage,FALSE,FALSE,,,0,Transaction Analytics
+gold_metrics_001,transaction_analytics,analytics_db,gold,avg_transaction_amount_usd,DECIMAL(18,2),Average transaction amount,FALSE,FALSE,,,0,Transaction Analytics
+gold_metrics_001_sub1,daily_transaction_metrics,analytics_db,gold,metric_date,DATE,Daily metric date,TRUE,FALSE,,gold_metrics_001,1,Daily Transaction Metrics
+gold_metrics_001_sub1,daily_transaction_metrics,analytics_db,gold,peak_hour,INT,Peak transaction hour,FALSE,FALSE,,gold_metrics_001,1,Daily Transaction Metrics
+gold_metrics_001_sub1,daily_transaction_metrics,analytics_db,gold,day_of_week,VARCHAR(10),Day of week,FALSE,FALSE,,gold_metrics_001,1,Daily Transaction Metrics
+gold_metrics_001_sub1_sub1,weekday_metrics,analytics_db,gold,metric_date,DATE,Weekday metric date,TRUE,FALSE,,gold_metrics_001_sub1,2,Weekday Metrics
+gold_metrics_001_sub1_sub1,weekday_metrics,analytics_db,gold,business_hours_volume,DECIMAL(18,2),Business hours volume,FALSE,FALSE,,gold_metrics_001_sub1,2,Weekday Metrics
+gold_metrics_001_sub1_sub1,weekday_metrics,analytics_db,gold,lunch_hour_peak,BOOLEAN,Lunch hour peak flag,FALSE,FALSE,,gold_metrics_001_sub1,2,Weekday Metrics
+gold_metrics_001_sub1_sub2,weekend_metrics,analytics_db,gold,metric_date,DATE,Weekend metric date,TRUE,FALSE,,gold_metrics_001_sub1,2,Weekend Metrics
+gold_metrics_001_sub1_sub2,weekend_metrics,analytics_db,gold,weekend_volume_ratio,DECIMAL(5,2),Weekend to weekday ratio,FALSE,FALSE,,gold_metrics_001_sub1,2,Weekend Metrics
+gold_metrics_001_sub1_sub2,weekend_metrics,analytics_db,gold,leisure_spending_indicator,BOOLEAN,Leisure spending flag,FALSE,FALSE,,gold_metrics_001_sub1,2,Weekend Metrics
+gold_metrics_001_sub2,monthly_transaction_metrics,analytics_db,gold,metric_month,VARCHAR(7),Metric month YYYY-MM,TRUE,FALSE,,gold_metrics_001,1,Monthly Transaction Metrics
+gold_metrics_001_sub2,monthly_transaction_metrics,analytics_db,gold,month_over_month_growth,DECIMAL(5,2),MoM growth percentage,FALSE,FALSE,,gold_metrics_001,1,Monthly Transaction Metrics
+gold_metrics_001_sub2,monthly_transaction_metrics,analytics_db,gold,seasonal_adjusted_volume,DECIMAL(18,2),Seasonally adjusted volume,FALSE,FALSE,,gold_metrics_001,1,Monthly Transaction Metrics
+gold_customer_analytics_002,customer_insights,analytics_db,gold,customer_id,VARCHAR(36),Customer identifier,TRUE,FALSE,,,0,Customer Insights
+gold_customer_analytics_002,customer_insights,analytics_db,gold,total_spend_usd,DECIMAL(18,2),Total customer spend,FALSE,FALSE,,,0,Customer Insights
+gold_customer_analytics_002,customer_insights,analytics_db,gold,transaction_count,INT,Total transactions,FALSE,FALSE,,,0,Customer Insights
+gold_customer_analytics_002,customer_insights,analytics_db,gold,customer_segment,VARCHAR(30),Customer segment,FALSE,FALSE,,,0,Customer Insights
+gold_customer_analytics_002,customer_insights,analytics_db,gold,churn_risk_score,INT,Churn risk score,FALSE,FALSE,,,0,Customer Insights
+gold_customer_analytics_002_sub1,high_value_customers,analytics_db,gold,customer_id,VARCHAR(36),High value customer ID,TRUE,FALSE,,gold_customer_analytics_002,1,High Value Customers
+gold_customer_analytics_002_sub1,high_value_customers,analytics_db,gold,lifetime_value_usd,DECIMAL(18,2),Customer lifetime value,FALSE,FALSE,,gold_customer_analytics_002,1,High Value Customers
+gold_customer_analytics_002_sub1,high_value_customers,analytics_db,gold,value_tier,VARCHAR(20),Value tier,FALSE,FALSE,,gold_customer_analytics_002,1,High Value Customers
+gold_customer_analytics_002_sub1_sub1,vip_customers,analytics_db,gold,customer_id,VARCHAR(36),VIP customer ID,TRUE,FALSE,,gold_customer_analytics_002_sub1,2,VIP Customers
+gold_customer_analytics_002_sub1_sub1,vip_customers,analytics_db,gold,white_glove_service,BOOLEAN,White glove service enabled,FALSE,FALSE,,gold_customer_analytics_002_sub1,2,VIP Customers
+gold_customer_analytics_002_sub1_sub1,vip_customers,analytics_db,gold,annual_spend_usd,DECIMAL(18,2),Annual spend,FALSE,FALSE,,gold_customer_analytics_002_sub1,2,VIP Customers
+gold_customer_analytics_002_sub1_sub1,vip_customers,analytics_db,gold,exclusive_offers_count,INT,Exclusive offers received,FALSE,FALSE,,gold_customer_analytics_002_sub1,2,VIP Customers
+gold_customer_analytics_002_sub2,at_risk_customers,analytics_db,gold,customer_id,VARCHAR(36),At-risk customer ID,TRUE,FALSE,,gold_customer_analytics_002,1,At-Risk Customers
+gold_customer_analytics_002_sub2,at_risk_customers,analytics_db,gold,days_since_last_transaction,INT,Days inactive,FALSE,FALSE,,gold_customer_analytics_002,1,At-Risk Customers
+gold_customer_analytics_002_sub2,at_risk_customers,analytics_db,gold,retention_campaign_sent,BOOLEAN,Retention campaign flag,FALSE,FALSE,,gold_customer_analytics_002,1,At-Risk Customers
+gold_customer_analytics_002_sub2_sub1,churned_customers,analytics_db,gold,customer_id,VARCHAR(36),Churned customer ID,TRUE,FALSE,,gold_customer_analytics_002_sub2,2,Churned Customers
+gold_customer_analytics_002_sub2_sub1,churned_customers,analytics_db,gold,churn_date,DATE,Churn date,FALSE,FALSE,,gold_customer_analytics_002_sub2,2,Churned Customers
+gold_customer_analytics_002_sub2_sub1,churned_customers,analytics_db,gold,churn_reason,VARCHAR(100),Primary churn reason,FALSE,FALSE,,gold_customer_analytics_002_sub2,2,Churned Customers
+gold_customer_analytics_002_sub2_sub1,churned_customers,analytics_db,gold,winback_eligible,BOOLEAN,Winback campaign eligible,FALSE,FALSE,,gold_customer_analytics_002_sub2,2,Churned Customers
+gold_merchant_analytics_003,merchant_performance,analytics_db,gold,merchant_id,VARCHAR(36),Merchant identifier,TRUE,FALSE,,,0,Merchant Performance
+gold_merchant_analytics_003,merchant_performance,analytics_db,gold,total_volume_usd,DECIMAL(18,2),Total merchant volume,FALSE,FALSE,,,0,Merchant Performance
+gold_merchant_analytics_003,merchant_performance,analytics_db,gold,transaction_count,INT,Total transactions,FALSE,FALSE,,,0,Merchant Performance
+gold_merchant_analytics_003,merchant_performance,analytics_db,gold,success_rate,DECIMAL(5,2),Success rate percentage,FALSE,FALSE,,,0,Merchant Performance
+gold_merchant_analytics_003,merchant_performance,analytics_db,gold,chargeback_rate,DECIMAL(5,2),Chargeback rate,FALSE,FALSE,,,0,Merchant Performance
+gold_merchant_analytics_003_sub1,top_performing_merchants,analytics_db,gold,merchant_id,VARCHAR(36),Top performing merchant ID,TRUE,FALSE,,gold_merchant_analytics_003,1,Top Performing Merchants
+gold_merchant_analytics_003_sub1,top_performing_merchants,analytics_db,gold,performance_score,INT,Performance score,FALSE,FALSE,,gold_merchant_analytics_003,1,Top Performing Merchants
+gold_merchant_analytics_003_sub1,top_performing_merchants,analytics_db,gold,growth_rate,DECIMAL(5,2),Growth rate percentage,FALSE,FALSE,,gold_merchant_analytics_003,1,Top Performing Merchants
+gold_merchant_analytics_003_sub1_sub1,elite_merchants,analytics_db,gold,merchant_id,VARCHAR(36),Elite merchant ID,TRUE,FALSE,,gold_merchant_analytics_003_sub1,2,Elite Merchants
+gold_merchant_analytics_003_sub1_sub1,elite_merchants,analytics_db,gold,elite_tier,VARCHAR(20),Elite tier level,FALSE,FALSE,,gold_merchant_analytics_003_sub1,2,Elite Merchants
+gold_merchant_analytics_003_sub1_sub1,elite_merchants,analytics_db,gold,partner_status,BOOLEAN,Strategic partner flag,FALSE,FALSE,,gold_merchant_analytics_003_sub1,2,Elite Merchants
+gold_merchant_analytics_003_sub1_sub1,elite_merchants,analytics_db,gold,custom_fee_structure,BOOLEAN,Custom fees enabled,FALSE,FALSE,,gold_merchant_analytics_003_sub1,2,Elite Merchants
+gold_merchant_analytics_003_sub2,underperforming_merchants,analytics_db,gold,merchant_id,VARCHAR(36),Underperforming merchant ID,TRUE,FALSE,,gold_merchant_analytics_003,1,Underperforming Merchants
+gold_merchant_analytics_003_sub2,underperforming_merchants,analytics_db,gold,performance_issues,TEXT,Identified issues,FALSE,FALSE,,gold_merchant_analytics_003,1,Underperforming Merchants
+gold_merchant_analytics_003_sub2,underperforming_merchants,analytics_db,gold,support_intervention_needed,BOOLEAN,Support needed flag,FALSE,FALSE,,gold_merchant_analytics_003,1,Underperforming Merchants
+gold_revenue_analytics_004,revenue_metrics,analytics_db,gold,metric_date,DATE,Revenue date,TRUE,FALSE,,,0,Revenue Metrics
+gold_revenue_analytics_004,revenue_metrics,analytics_db,gold,gross_revenue_usd,DECIMAL(18,2),Gross revenue,FALSE,FALSE,,,0,Revenue Metrics
+gold_revenue_analytics_004,revenue_metrics,analytics_db,gold,net_revenue_usd,DECIMAL(18,2),Net revenue,FALSE,FALSE,,,0,Revenue Metrics
+gold_revenue_analytics_004,revenue_metrics,analytics_db,gold,profit_margin,DECIMAL(5,2),Profit margin percentage,FALSE,FALSE,,,0,Revenue Metrics
+gold_revenue_analytics_004,revenue_metrics,analytics_db,gold,revenue_growth_rate,DECIMAL(5,2),Revenue growth rate,FALSE,FALSE,,,0,Revenue Metrics
+gold_revenue_analytics_004_sub1,transaction_fee_revenue,analytics_db,gold,metric_date,DATE,Fee revenue date,TRUE,FALSE,,gold_revenue_analytics_004,1,Transaction Fee Revenue
+gold_revenue_analytics_004_sub1,transaction_fee_revenue,analytics_db,gold,processing_fees_usd,DECIMAL(18,2),Processing fees collected,FALSE,FALSE,,gold_revenue_analytics_004,1,Transaction Fee Revenue
+gold_revenue_analytics_004_sub1,transaction_fee_revenue,analytics_db,gold,interchange_revenue_usd,DECIMAL(18,2),Interchange revenue,FALSE,FALSE,,gold_revenue_analytics_004,1,Transaction Fee Revenue
+gold_revenue_analytics_004_sub1_sub1,card_fee_revenue,analytics_db,gold,metric_date,DATE,Card fee date,TRUE,FALSE,,gold_revenue_analytics_004_sub1,2,Card Fee Revenue
+gold_revenue_analytics_004_sub1_sub1,card_fee_revenue,analytics_db,gold,credit_card_fees_usd,DECIMAL(18,2),Credit card fees,FALSE,FALSE,,gold_revenue_analytics_004_sub1,2,Card Fee Revenue
+gold_revenue_analytics_004_sub1_sub1,card_fee_revenue,analytics_db,gold,debit_card_fees_usd,DECIMAL(18,2),Debit card fees,FALSE,FALSE,,gold_revenue_analytics_004_sub1,2,Card Fee Revenue
+gold_revenue_analytics_004_sub1_sub2,alternative_payment_revenue,analytics_db,gold,metric_date,DATE,Alternative payment date,TRUE,FALSE,,gold_revenue_analytics_004_sub1,2,Alternative Payment Revenue
+gold_revenue_analytics_004_sub1_sub2,alternative_payment_revenue,analytics_db,gold,wallet_fees_usd,DECIMAL(18,2),Digital wallet fees,FALSE,FALSE,,gold_revenue_analytics_004_sub1,2,Alternative Payment Revenue
+gold_revenue_analytics_004_sub1_sub2,alternative_payment_revenue,analytics_db,gold,bank_transfer_fees_usd,DECIMAL(18,2),Bank transfer fees,FALSE,FALSE,,gold_revenue_analytics_004_sub1,2,Alternative Payment Revenue
+gold_revenue_analytics_004_sub2,subscription_revenue,analytics_db,gold,metric_date,DATE,Subscription revenue date,TRUE,FALSE,,gold_revenue_analytics_004,1,Subscription Revenue
+gold_revenue_analytics_004_sub2,subscription_revenue,analytics_db,gold,recurring_revenue_usd,DECIMAL(18,2),Monthly recurring revenue,FALSE,FALSE,,gold_revenue_analytics_004,1,Subscription Revenue
+gold_revenue_analytics_004_sub2,subscription_revenue,analytics_db,gold,subscription_count,INT,Active subscriptions,FALSE,FALSE,,gold_revenue_analytics_004,1,Subscription Revenue
+gold_fraud_analytics_005,fraud_insights,analytics_db,gold,metric_date,DATE,Fraud metric date,TRUE,FALSE,,,0,Fraud Insights
+gold_fraud_analytics_005,fraud_insights,analytics_db,gold,fraud_detected_count,INT,Fraud cases detected,FALSE,FALSE,,,0,Fraud Insights
+gold_fraud_analytics_005,fraud_insights,analytics_db,gold,fraud_prevented_amount_usd,DECIMAL(18,2),Amount prevented,FALSE,FALSE,,,0,Fraud Insights
+gold_fraud_analytics_005,fraud_insights,analytics_db,gold,false_positive_rate,DECIMAL(5,2),False positive rate,FALSE,FALSE,,,0,Fraud Insights
+gold_fraud_analytics_005,fraud_insights,analytics_db,gold,model_accuracy,DECIMAL(5,2),ML model accuracy,FALSE,FALSE,,,0,Fraud Insights
+gold_fraud_analytics_005_sub1,confirmed_fraud_cases,analytics_db,gold,metric_date,DATE,Confirmed fraud date,TRUE,FALSE,,gold_fraud_analytics_005,1,Confirmed Fraud Cases
+gold_fraud_analytics_005_sub1,confirmed_fraud_cases,analytics_db,gold,confirmed_count,INT,Confirmed fraud count,FALSE,FALSE,,gold_fraud_analytics_005,1,Confirmed Fraud Cases
+gold_fraud_analytics_005_sub1,confirmed_fraud_cases,analytics_db,gold,total_loss_usd,DECIMAL(18,2),Total fraud loss,FALSE,FALSE,,gold_fraud_analytics_005,1,Confirmed Fraud Cases
+gold_fraud_analytics_005_sub1_sub1,identity_fraud,analytics_db,gold,metric_date,DATE,Identity fraud date,TRUE,FALSE,,gold_fraud_analytics_005_sub1,2,Identity Fraud
+gold_fraud_analytics_005_sub1_sub1,identity_fraud,analytics_db,gold,identity_theft_count,INT,Identity theft cases,FALSE,FALSE,,gold_fraud_analytics_005_sub1,2,Identity Fraud
+gold_fraud_analytics_005_sub1_sub1,identity_fraud,analytics_db,gold,synthetic_identity_count,INT,Synthetic identity cases,FALSE,FALSE,,gold_fraud_analytics_005_sub1,2,Identity Fraud
+gold_fraud_analytics_005_sub1_sub2,payment_fraud,analytics_db,gold,metric_date,DATE,Payment fraud date,TRUE,FALSE,,gold_fraud_analytics_005_sub1,2,Payment Fraud
+gold_fraud_analytics_005_sub1_sub2,payment_fraud,analytics_db,gold,card_not_present_count,INT,CNP fraud cases,FALSE,FALSE,,gold_fraud_analytics_005_sub1,2,Payment Fraud
+gold_fraud_analytics_005_sub1_sub2,payment_fraud,analytics_db,gold,account_takeover_count,INT,Account takeover cases,FALSE,FALSE,,gold_fraud_analytics_005_sub1,2,Payment Fraud
+gold_fraud_analytics_005_sub2,false_positives,analytics_db,gold,metric_date,DATE,False positive date,TRUE,FALSE,,gold_fraud_analytics_005,1,False Positives
+gold_fraud_analytics_005_sub2,false_positives,analytics_db,gold,false_positive_count,INT,False positive count,FALSE,FALSE,,gold_fraud_analytics_005,1,False Positives
+gold_fraud_analytics_005_sub2,false_positives,analytics_db,gold,customer_friction_score,INT,Customer friction impact,FALSE,FALSE,,gold_fraud_analytics_005,1,False Positives
+gold_cohort_analytics_006,customer_cohorts,analytics_db,gold,cohort_month,VARCHAR(7),Cohort month YYYY-MM,TRUE,FALSE,,,0,Customer Cohorts
+gold_cohort_analytics_006,customer_cohorts,analytics_db,gold,cohort_size,INT,Original cohort size,FALSE,FALSE,,,0,Customer Cohorts
+gold_cohort_analytics_006,customer_cohorts,analytics_db,gold,active_customers,INT,Currently active,FALSE,FALSE,,,0,Customer Cohorts
+gold_cohort_analytics_006,customer_cohorts,analytics_db,gold,retention_rate,DECIMAL(5,2),Retention rate,FALSE,FALSE,,,0,Customer Cohorts
+gold_cohort_analytics_006,customer_cohorts,analytics_db,gold,cumulative_revenue_usd,DECIMAL(18,2),Cumulative revenue,FALSE,FALSE,,,0,Customer Cohorts
+gold_cohort_analytics_006_sub1,high_performing_cohorts,analytics_db,gold,cohort_month,VARCHAR(7),High performing cohort,TRUE,FALSE,,gold_cohort_analytics_006,1,High Performing Cohorts
+gold_cohort_analytics_006_sub1,high_performing_cohorts,analytics_db,gold,retention_above_average,BOOLEAN,Above average retention,FALSE,FALSE,,gold_cohort_analytics_006,1,High Performing Cohorts
+gold_cohort_analytics_006_sub1,high_performing_cohorts,analytics_db,gold,revenue_per_customer,DECIMAL(18,2),Revenue per customer,FALSE,FALSE,,gold_cohort_analytics_006,1,High Performing Cohorts
+gold_cohort_analytics_006_sub2,declining_cohorts,analytics_db,gold,cohort_month,VARCHAR(7),Declining cohort,TRUE,FALSE,,gold_cohort_analytics_006,1,Declining Cohorts
+gold_cohort_analytics_006_sub2,declining_cohorts,analytics_db,gold,churn_rate,DECIMAL(5,2),Cohort churn rate,FALSE,FALSE,,gold_cohort_analytics_006,1,Declining Cohorts
+gold_cohort_analytics_006_sub2,declining_cohorts,analytics_db,gold,intervention_recommended,BOOLEAN,Intervention needed,FALSE,FALSE,,gold_cohort_analytics_006,1,Declining Cohorts

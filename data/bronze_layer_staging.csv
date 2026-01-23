@@ -1,0 +1,133 @@
+table_id,table_name,database_name,schema_name,column_name,data_type,description,is_primary_key,is_foreign_key,foreign_key_table,parent_table,level,display_name
+bronze_payments_001,raw_payment_transactions,payments_db,bronze,transaction_id,VARCHAR(36),Unique transaction identifier,TRUE,FALSE,,,0,Raw Payment Transactions
+bronze_payments_001,raw_payment_transactions,payments_db,bronze,customer_id,VARCHAR(36),Customer identifier,FALSE,TRUE,raw_customer_data,,0,Raw Payment Transactions
+bronze_payments_001,raw_payment_transactions,payments_db,bronze,merchant_id,VARCHAR(36),Merchant identifier,FALSE,TRUE,raw_merchant_data,,0,Raw Payment Transactions
+bronze_payments_001,raw_payment_transactions,payments_db,bronze,payment_method_id,VARCHAR(36),Payment method identifier,FALSE,TRUE,raw_payment_methods,,0,Raw Payment Transactions
+bronze_payments_001,raw_payment_transactions,payments_db,bronze,transaction_amount,DECIMAL(18,2),Transaction amount in base currency,FALSE,FALSE,,,0,Raw Payment Transactions
+bronze_payments_001,raw_payment_transactions,payments_db,bronze,currency_code,VARCHAR(3),ISO 4217 currency code,FALSE,FALSE,,,0,Raw Payment Transactions
+bronze_payments_001,raw_payment_transactions,payments_db,bronze,transaction_status,VARCHAR(20),Transaction status (pending/completed/failed),FALSE,FALSE,,,0,Raw Payment Transactions
+bronze_payments_001,raw_payment_transactions,payments_db,bronze,transaction_timestamp,TIMESTAMP,Timestamp of transaction,FALSE,FALSE,,,0,Raw Payment Transactions
+bronze_payments_001,raw_payment_transactions,payments_db,bronze,gateway_response_code,VARCHAR(10),Payment gateway response code,FALSE,FALSE,,,0,Raw Payment Transactions
+bronze_payments_001,raw_payment_transactions,payments_db,bronze,created_at,TIMESTAMP,Record creation timestamp,FALSE,FALSE,,,0,Raw Payment Transactions
+bronze_payments_001_sub1,card_payment_transactions,payments_db,bronze,transaction_id,VARCHAR(36),Card transaction identifier,TRUE,FALSE,,bronze_payments_001,1,Card Payment Transactions
+bronze_payments_001_sub1,card_payment_transactions,payments_db,bronze,card_network,VARCHAR(20),Card network (Visa/MC/Amex),FALSE,FALSE,,bronze_payments_001,1,Card Payment Transactions
+bronze_payments_001_sub1,card_payment_transactions,payments_db,bronze,card_type,VARCHAR(20),Card type (debit/credit),FALSE,FALSE,,bronze_payments_001,1,Card Payment Transactions
+bronze_payments_001_sub1,card_payment_transactions,payments_db,bronze,authorization_code,VARCHAR(20),Card authorization code,FALSE,FALSE,,bronze_payments_001,1,Card Payment Transactions
+bronze_payments_001_sub1,card_payment_transactions,payments_db,bronze,avs_result,VARCHAR(10),Address verification result,FALSE,FALSE,,bronze_payments_001,1,Card Payment Transactions
+bronze_payments_001_sub1_sub1,debit_card_transactions,payments_db,bronze,transaction_id,VARCHAR(36),Debit transaction identifier,TRUE,FALSE,,bronze_payments_001_sub1,2,Debit Card Transactions
+bronze_payments_001_sub1_sub1,debit_card_transactions,payments_db,bronze,pin_verified,BOOLEAN,PIN verification status,FALSE,FALSE,,bronze_payments_001_sub1,2,Debit Card Transactions
+bronze_payments_001_sub1_sub1,debit_card_transactions,payments_db,bronze,atm_transaction,BOOLEAN,ATM transaction flag,FALSE,FALSE,,bronze_payments_001_sub1,2,Debit Card Transactions
+bronze_payments_001_sub1_sub2,credit_card_transactions,payments_db,bronze,transaction_id,VARCHAR(36),Credit transaction identifier,TRUE,FALSE,,bronze_payments_001_sub1,2,Credit Card Transactions
+bronze_payments_001_sub1_sub2,credit_card_transactions,payments_db,bronze,credit_limit_check,BOOLEAN,Credit limit verification,FALSE,FALSE,,bronze_payments_001_sub1,2,Credit Card Transactions
+bronze_payments_001_sub1_sub2,credit_card_transactions,payments_db,bronze,rewards_points_earned,INT,Rewards points from transaction,FALSE,FALSE,,bronze_payments_001_sub1,2,Credit Card Transactions
+bronze_payments_001_sub2,bank_transfer_transactions,payments_db,bronze,transaction_id,VARCHAR(36),Bank transfer identifier,TRUE,FALSE,,bronze_payments_001,1,Bank Transfer Transactions
+bronze_payments_001_sub2,bank_transfer_transactions,payments_db,bronze,bank_name,VARCHAR(100),Bank name,FALSE,FALSE,,bronze_payments_001,1,Bank Transfer Transactions
+bronze_payments_001_sub2,bank_transfer_transactions,payments_db,bronze,account_last_four,VARCHAR(4),Last 4 digits of account,FALSE,FALSE,,bronze_payments_001,1,Bank Transfer Transactions
+bronze_payments_001_sub2,bank_transfer_transactions,payments_db,bronze,routing_number,VARCHAR(20),Bank routing number,FALSE,FALSE,,bronze_payments_001,1,Bank Transfer Transactions
+bronze_payments_001_sub2_sub1,ach_transactions,payments_db,bronze,transaction_id,VARCHAR(36),ACH transaction identifier,TRUE,FALSE,,bronze_payments_001_sub2,2,ACH Transactions
+bronze_payments_001_sub2_sub1,ach_transactions,payments_db,bronze,ach_trace_number,VARCHAR(30),ACH trace number,FALSE,FALSE,,bronze_payments_001_sub2,2,ACH Transactions
+bronze_payments_001_sub2_sub1,ach_transactions,payments_db,bronze,settlement_date,DATE,ACH settlement date,FALSE,FALSE,,bronze_payments_001_sub2,2,ACH Transactions
+bronze_payments_001_sub2_sub2,wire_transfer_transactions,payments_db,bronze,transaction_id,VARCHAR(36),Wire transfer identifier,TRUE,FALSE,,bronze_payments_001_sub2,2,Wire Transfer Transactions
+bronze_payments_001_sub2_sub2,wire_transfer_transactions,payments_db,bronze,swift_code,VARCHAR(20),SWIFT/BIC code,FALSE,FALSE,,bronze_payments_001_sub2,2,Wire Transfer Transactions
+bronze_payments_001_sub2_sub2,wire_transfer_transactions,payments_db,bronze,intermediary_bank,VARCHAR(100),Intermediary bank name,FALSE,FALSE,,bronze_payments_001_sub2,2,Wire Transfer Transactions
+bronze_payments_001_sub3,wallet_transactions,payments_db,bronze,transaction_id,VARCHAR(36),Digital wallet transaction ID,TRUE,FALSE,,bronze_payments_001,1,Wallet Transactions
+bronze_payments_001_sub3,wallet_transactions,payments_db,bronze,wallet_provider,VARCHAR(50),Wallet provider (Apple/Google/PayPal),FALSE,FALSE,,bronze_payments_001,1,Wallet Transactions
+bronze_payments_001_sub3,wallet_transactions,payments_db,bronze,wallet_token,VARCHAR(100),Wallet token identifier,FALSE,FALSE,,bronze_payments_001,1,Wallet Transactions
+bronze_payments_001_sub3,wallet_transactions,payments_db,bronze,device_fingerprint,VARCHAR(255),Device fingerprint hash,FALSE,FALSE,,bronze_payments_001,1,Wallet Transactions
+bronze_customer_002,raw_customer_data,payments_db,bronze,customer_id,VARCHAR(36),Unique customer identifier,TRUE,FALSE,,,0,Raw Customer Data
+bronze_customer_002,raw_customer_data,payments_db,bronze,first_name,VARCHAR(100),Customer first name,FALSE,FALSE,,,0,Raw Customer Data
+bronze_customer_002,raw_customer_data,payments_db,bronze,last_name,VARCHAR(100),Customer last name,FALSE,FALSE,,,0,Raw Customer Data
+bronze_customer_002,raw_customer_data,payments_db,bronze,email,VARCHAR(255),Customer email address,FALSE,FALSE,,,0,Raw Customer Data
+bronze_customer_002,raw_customer_data,payments_db,bronze,phone_number,VARCHAR(20),Customer phone number,FALSE,FALSE,,,0,Raw Customer Data
+bronze_customer_002,raw_customer_data,payments_db,bronze,date_of_birth,DATE,Customer date of birth,FALSE,FALSE,,,0,Raw Customer Data
+bronze_customer_002,raw_customer_data,payments_db,bronze,country_code,VARCHAR(2),ISO 3166 country code,FALSE,FALSE,,,0,Raw Customer Data
+bronze_customer_002,raw_customer_data,payments_db,bronze,kyc_status,VARCHAR(20),KYC verification status,FALSE,FALSE,,,0,Raw Customer Data
+bronze_customer_002,raw_customer_data,payments_db,bronze,risk_score,INT,Customer risk score (0-100),FALSE,FALSE,,,0,Raw Customer Data
+bronze_customer_002_sub1,individual_customers,payments_db,bronze,customer_id,VARCHAR(36),Individual customer identifier,TRUE,FALSE,,bronze_customer_002,1,Individual Customers
+bronze_customer_002_sub1,individual_customers,payments_db,bronze,ssn_last_four,VARCHAR(4),Last 4 digits of SSN,FALSE,FALSE,,bronze_customer_002,1,Individual Customers
+bronze_customer_002_sub1,individual_customers,payments_db,bronze,employment_status,VARCHAR(30),Employment status,FALSE,FALSE,,bronze_customer_002,1,Individual Customers
+bronze_customer_002_sub1,individual_customers,payments_db,bronze,annual_income,DECIMAL(18,2),Annual income,FALSE,FALSE,,bronze_customer_002,1,Individual Customers
+bronze_customer_002_sub1_sub1,premium_individual_customers,payments_db,bronze,customer_id,VARCHAR(36),Premium customer identifier,TRUE,FALSE,,bronze_customer_002_sub1,2,Premium Individual Customers
+bronze_customer_002_sub1_sub1,premium_individual_customers,payments_db,bronze,vip_tier,VARCHAR(20),VIP tier level,FALSE,FALSE,,bronze_customer_002_sub1,2,Premium Individual Customers
+bronze_customer_002_sub1_sub1,premium_individual_customers,payments_db,bronze,dedicated_account_manager,VARCHAR(100),Account manager name,FALSE,FALSE,,bronze_customer_002_sub1,2,Premium Individual Customers
+bronze_customer_002_sub1_sub1,premium_individual_customers,payments_db,bronze,concierge_service,BOOLEAN,Concierge service enabled,FALSE,FALSE,,bronze_customer_002_sub1,2,Premium Individual Customers
+bronze_customer_002_sub2,business_customers,payments_db,bronze,customer_id,VARCHAR(36),Business customer identifier,TRUE,FALSE,,bronze_customer_002,1,Business Customers
+bronze_customer_002_sub2,business_customers,payments_db,bronze,business_name,VARCHAR(255),Legal business name,FALSE,FALSE,,bronze_customer_002,1,Business Customers
+bronze_customer_002_sub2,business_customers,payments_db,bronze,ein,VARCHAR(20),Employer Identification Number,FALSE,FALSE,,bronze_customer_002,1,Business Customers
+bronze_customer_002_sub2,business_customers,payments_db,bronze,business_type,VARCHAR(50),Business entity type,FALSE,FALSE,,bronze_customer_002,1,Business Customers
+bronze_customer_002_sub2,business_customers,payments_db,bronze,annual_revenue,DECIMAL(18,2),Annual business revenue,FALSE,FALSE,,bronze_customer_002,1,Business Customers
+bronze_customer_002_sub2_sub1,enterprise_customers,payments_db,bronze,customer_id,VARCHAR(36),Enterprise customer identifier,TRUE,FALSE,,bronze_customer_002_sub2,2,Enterprise Customers
+bronze_customer_002_sub2_sub1,enterprise_customers,payments_db,bronze,contract_value,DECIMAL(18,2),Annual contract value,FALSE,FALSE,,bronze_customer_002_sub2,2,Enterprise Customers
+bronze_customer_002_sub2_sub1,enterprise_customers,payments_db,bronze,sla_tier,VARCHAR(20),SLA tier level,FALSE,FALSE,,bronze_customer_002_sub2,2,Enterprise Customers
+bronze_customer_002_sub2_sub1,enterprise_customers,payments_db,bronze,custom_integration,BOOLEAN,Custom integration enabled,FALSE,FALSE,,bronze_customer_002_sub2,2,Enterprise Customers
+bronze_customer_002_sub2_sub2,smb_customers,payments_db,bronze,customer_id,VARCHAR(36),SMB customer identifier,TRUE,FALSE,,bronze_customer_002_sub2,2,SMB Customers
+bronze_customer_002_sub2_sub2,smb_customers,payments_db,bronze,employee_count,INT,Number of employees,FALSE,FALSE,,bronze_customer_002_sub2,2,SMB Customers
+bronze_customer_002_sub2_sub2,smb_customers,payments_db,bronze,monthly_transaction_volume,DECIMAL(18,2),Monthly volume,FALSE,FALSE,,bronze_customer_002_sub2,2,SMB Customers
+bronze_merchant_003,raw_merchant_data,payments_db,bronze,merchant_id,VARCHAR(36),Unique merchant identifier,TRUE,FALSE,,,0,Raw Merchant Data
+bronze_merchant_003,raw_merchant_data,payments_db,bronze,merchant_name,VARCHAR(255),Legal merchant name,FALSE,FALSE,,,0,Raw Merchant Data
+bronze_merchant_003,raw_merchant_data,payments_db,bronze,business_category,VARCHAR(50),Merchant business category,FALSE,FALSE,,,0,Raw Merchant Data
+bronze_merchant_003,raw_merchant_data,payments_db,bronze,mcc_code,VARCHAR(4),Merchant Category Code,FALSE,FALSE,,,0,Raw Merchant Data
+bronze_merchant_003,raw_merchant_data,payments_db,bronze,country_code,VARCHAR(2),Merchant country code,FALSE,FALSE,,,0,Raw Merchant Data
+bronze_merchant_003,raw_merchant_data,payments_db,bronze,settlement_account,VARCHAR(50),Merchant settlement account,FALSE,FALSE,,,0,Raw Merchant Data
+bronze_merchant_003_sub1,ecommerce_merchants,payments_db,bronze,merchant_id,VARCHAR(36),E-commerce merchant identifier,TRUE,FALSE,,bronze_merchant_003,1,E-commerce Merchants
+bronze_merchant_003_sub1,ecommerce_merchants,payments_db,bronze,website_url,VARCHAR(255),Merchant website URL,FALSE,FALSE,,bronze_merchant_003,1,E-commerce Merchants
+bronze_merchant_003_sub1,ecommerce_merchants,payments_db,bronze,platform,VARCHAR(50),E-commerce platform,FALSE,FALSE,,bronze_merchant_003,1,E-commerce Merchants
+bronze_merchant_003_sub1,ecommerce_merchants,payments_db,bronze,api_integration_type,VARCHAR(50),API integration type,FALSE,FALSE,,bronze_merchant_003,1,E-commerce Merchants
+bronze_merchant_003_sub1_sub1,marketplace_merchants,payments_db,bronze,merchant_id,VARCHAR(36),Marketplace merchant identifier,TRUE,FALSE,,bronze_merchant_003_sub1,2,Marketplace Merchants
+bronze_merchant_003_sub1_sub1,marketplace_merchants,payments_db,bronze,multi_vendor,BOOLEAN,Multi-vendor enabled,FALSE,FALSE,,bronze_merchant_003_sub1,2,Marketplace Merchants
+bronze_merchant_003_sub1_sub1,marketplace_merchants,payments_db,bronze,vendor_count,INT,Number of vendors,FALSE,FALSE,,bronze_merchant_003_sub1,2,Marketplace Merchants
+bronze_merchant_003_sub1_sub1,marketplace_merchants,payments_db,bronze,split_payment_enabled,BOOLEAN,Split payment capability,FALSE,FALSE,,bronze_merchant_003_sub1,2,Marketplace Merchants
+bronze_merchant_003_sub2,retail_merchants,payments_db,bronze,merchant_id,VARCHAR(36),Retail merchant identifier,TRUE,FALSE,,bronze_merchant_003,1,Retail Merchants
+bronze_merchant_003_sub2,retail_merchants,payments_db,bronze,store_count,INT,Number of physical stores,FALSE,FALSE,,bronze_merchant_003,1,Retail Merchants
+bronze_merchant_003_sub2,retail_merchants,payments_db,bronze,pos_system,VARCHAR(50),POS system type,FALSE,FALSE,,bronze_merchant_003,1,Retail Merchants
+bronze_merchant_003_sub2,retail_merchants,payments_db,bronze,omnichannel_enabled,BOOLEAN,Omnichannel capability,FALSE,FALSE,,bronze_merchant_003,1,Retail Merchants
+bronze_merchant_003_sub2_sub1,chain_store_merchants,payments_db,bronze,merchant_id,VARCHAR(36),Chain store merchant identifier,TRUE,FALSE,,bronze_merchant_003_sub2,2,Chain Store Merchants
+bronze_merchant_003_sub2_sub1,chain_store_merchants,payments_db,bronze,franchise_model,BOOLEAN,Franchise model flag,FALSE,FALSE,,bronze_merchant_003_sub2,2,Chain Store Merchants
+bronze_merchant_003_sub2_sub1,chain_store_merchants,payments_db,bronze,headquarters_location,VARCHAR(100),HQ location,FALSE,FALSE,,bronze_merchant_003_sub2,2,Chain Store Merchants
+bronze_merchant_003_sub3,service_merchants,payments_db,bronze,merchant_id,VARCHAR(36),Service merchant identifier,TRUE,FALSE,,bronze_merchant_003,1,Service Merchants
+bronze_merchant_003_sub3,service_merchants,payments_db,bronze,service_type,VARCHAR(50),Type of service provided,FALSE,FALSE,,bronze_merchant_003,1,Service Merchants
+bronze_merchant_003_sub3,service_merchants,payments_db,bronze,subscription_based,BOOLEAN,Subscription model flag,FALSE,FALSE,,bronze_merchant_003,1,Service Merchants
+bronze_merchant_003_sub3,service_merchants,payments_db,bronze,recurring_billing,BOOLEAN,Recurring billing enabled,FALSE,FALSE,,bronze_merchant_003,1,Service Merchants
+bronze_payment_methods_004,raw_payment_methods,payments_db,bronze,payment_method_id,VARCHAR(36),Unique payment method identifier,TRUE,FALSE,,,0,Raw Payment Methods
+bronze_payment_methods_004,raw_payment_methods,payments_db,bronze,customer_id,VARCHAR(36),Customer identifier,FALSE,TRUE,raw_customer_data,,0,Raw Payment Methods
+bronze_payment_methods_004,raw_payment_methods,payments_db,bronze,method_type,VARCHAR(30),Payment method type,FALSE,FALSE,,,0,Raw Payment Methods
+bronze_payment_methods_004,raw_payment_methods,payments_db,bronze,is_default,BOOLEAN,Is default payment method,FALSE,FALSE,,,0,Raw Payment Methods
+bronze_payment_methods_004,raw_payment_methods,payments_db,bronze,created_at,TIMESTAMP,Record creation timestamp,FALSE,FALSE,,,0,Raw Payment Methods
+bronze_gateway_logs_005,raw_payment_gateway_logs,payments_db,bronze,log_id,VARCHAR(36),Unique log identifier,TRUE,FALSE,,,0,Raw Payment Gateway Logs
+bronze_gateway_logs_005,raw_payment_gateway_logs,payments_db,bronze,transaction_id,VARCHAR(36),Transaction identifier,FALSE,TRUE,raw_payment_transactions,,0,Raw Payment Gateway Logs
+bronze_gateway_logs_005,raw_payment_gateway_logs,payments_db,bronze,gateway_name,VARCHAR(50),Payment gateway name,FALSE,FALSE,,,0,Raw Payment Gateway Logs
+bronze_gateway_logs_005,raw_payment_gateway_logs,payments_db,bronze,request_payload,TEXT,Request payload JSON,FALSE,FALSE,,,0,Raw Payment Gateway Logs
+bronze_gateway_logs_005,raw_payment_gateway_logs,payments_db,bronze,response_payload,TEXT,Response payload JSON,FALSE,FALSE,,,0,Raw Payment Gateway Logs
+bronze_gateway_logs_005,raw_payment_gateway_logs,payments_db,bronze,http_status_code,INT,HTTP response status code,FALSE,FALSE,,,0,Raw Payment Gateway Logs
+bronze_transaction_events_006,raw_transaction_events,payments_db,bronze,event_id,VARCHAR(36),Unique event identifier,TRUE,FALSE,,,0,Raw Transaction Events
+bronze_transaction_events_006,raw_transaction_events,payments_db,bronze,transaction_id,VARCHAR(36),Transaction identifier,FALSE,TRUE,raw_payment_transactions,,0,Raw Transaction Events
+bronze_transaction_events_006,raw_transaction_events,payments_db,bronze,event_type,VARCHAR(50),Event type,FALSE,FALSE,,,0,Raw Transaction Events
+bronze_transaction_events_006,raw_transaction_events,payments_db,bronze,event_timestamp,TIMESTAMP,Event occurrence timestamp,FALSE,FALSE,,,0,Raw Transaction Events
+bronze_transaction_events_006,raw_transaction_events,payments_db,bronze,event_data,TEXT,Event data JSON,FALSE,FALSE,,,0,Raw Transaction Events
+bronze_refunds_007,raw_refund_requests,payments_db,bronze,refund_id,VARCHAR(36),Unique refund identifier,TRUE,FALSE,,,0,Raw Refund Requests
+bronze_refunds_007,raw_refund_requests,payments_db,bronze,transaction_id,VARCHAR(36),Original transaction identifier,FALSE,TRUE,raw_payment_transactions,,0,Raw Refund Requests
+bronze_refunds_007,raw_refund_requests,payments_db,bronze,refund_amount,DECIMAL(18,2),Refund amount,FALSE,FALSE,,,0,Raw Refund Requests
+bronze_refunds_007,raw_refund_requests,payments_db,bronze,refund_reason,VARCHAR(255),Reason for refund,FALSE,FALSE,,,0,Raw Refund Requests
+bronze_refunds_007,raw_refund_requests,payments_db,bronze,refund_status,VARCHAR(20),Refund status,FALSE,FALSE,,,0,Raw Refund Requests
+bronze_refunds_007_sub1,full_refunds,payments_db,bronze,refund_id,VARCHAR(36),Full refund identifier,TRUE,FALSE,,bronze_refunds_007,1,Full Refunds
+bronze_refunds_007_sub1,full_refunds,payments_db,bronze,original_amount,DECIMAL(18,2),Original transaction amount,FALSE,FALSE,,bronze_refunds_007,1,Full Refunds
+bronze_refunds_007_sub1,full_refunds,payments_db,bronze,refund_percentage,DECIMAL(5,2),Always 100%,FALSE,FALSE,,bronze_refunds_007,1,Full Refunds
+bronze_refunds_007_sub2,partial_refunds,payments_db,bronze,refund_id,VARCHAR(36),Partial refund identifier,TRUE,FALSE,,bronze_refunds_007,1,Partial Refunds
+bronze_refunds_007_sub2,partial_refunds,payments_db,bronze,original_amount,DECIMAL(18,2),Original transaction amount,FALSE,FALSE,,bronze_refunds_007,1,Partial Refunds
+bronze_refunds_007_sub2,partial_refunds,payments_db,bronze,refund_percentage,DECIMAL(5,2),Percentage refunded,FALSE,FALSE,,bronze_refunds_007,1,Partial Refunds
+bronze_refunds_007_sub2,partial_refunds,payments_db,bronze,remaining_balance,DECIMAL(18,2),Remaining amount,FALSE,FALSE,,bronze_refunds_007,1,Partial Refunds
+bronze_chargebacks_008,raw_chargeback_cases,payments_db,bronze,chargeback_id,VARCHAR(36),Unique chargeback identifier,TRUE,FALSE,,,0,Raw Chargeback Cases
+bronze_chargebacks_008,raw_chargeback_cases,payments_db,bronze,transaction_id,VARCHAR(36),Disputed transaction identifier,FALSE,TRUE,raw_payment_transactions,,0,Raw Chargeback Cases
+bronze_chargebacks_008,raw_chargeback_cases,payments_db,bronze,chargeback_amount,DECIMAL(18,2),Chargeback amount,FALSE,FALSE,,,0,Raw Chargeback Cases
+bronze_chargebacks_008,raw_chargeback_cases,payments_db,bronze,reason_code,VARCHAR(10),Chargeback reason code,FALSE,FALSE,,,0,Raw Chargeback Cases
+bronze_chargebacks_008,raw_chargeback_cases,payments_db,bronze,chargeback_status,VARCHAR(20),Chargeback case status,FALSE,FALSE,,,0,Raw Chargeback Cases
+bronze_fraud_alerts_009,raw_fraud_alerts,payments_db,bronze,alert_id,VARCHAR(36),Unique alert identifier,TRUE,FALSE,,,0,Raw Fraud Alerts
+bronze_fraud_alerts_009,raw_fraud_alerts,payments_db,bronze,transaction_id,VARCHAR(36),Flagged transaction identifier,FALSE,TRUE,raw_payment_transactions,,0,Raw Fraud Alerts
+bronze_fraud_alerts_009,raw_fraud_alerts,payments_db,bronze,customer_id,VARCHAR(36),Customer identifier,FALSE,TRUE,raw_customer_data,,0,Raw Fraud Alerts
+bronze_fraud_alerts_009,raw_fraud_alerts,payments_db,bronze,alert_type,VARCHAR(50),Type of fraud alert,FALSE,FALSE,,,0,Raw Fraud Alerts
+bronze_fraud_alerts_009,raw_fraud_alerts,payments_db,bronze,risk_score,INT,Fraud risk score,FALSE,FALSE,,,0,Raw Fraud Alerts
+bronze_settlement_batches_010,raw_settlement_batches,payments_db,bronze,batch_id,VARCHAR(36),Unique batch identifier,TRUE,FALSE,,,0,Raw Settlement Batches
+bronze_settlement_batches_010,raw_settlement_batches,payments_db,bronze,merchant_id,VARCHAR(36),Merchant identifier,FALSE,TRUE,raw_merchant_data,,0,Raw Settlement Batches
+bronze_settlement_batches_010,raw_settlement_batches,payments_db,bronze,batch_date,DATE,Settlement batch date,FALSE,FALSE,,,0,Raw Settlement Batches
+bronze_settlement_batches_010,raw_settlement_batches,payments_db,bronze,total_amount,DECIMAL(18,2),Total settlement amount,FALSE,FALSE,,,0,Raw Settlement Batches
+bronze_settlement_batches_010,raw_settlement_batches,payments_db,bronze,transaction_count,INT,Number of transactions in batch,FALSE,FALSE,,,0,Raw Settlement Batches
